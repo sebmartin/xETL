@@ -1,0 +1,11 @@
+#! /bin/bash
+
+# activate virtualenv
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+ROOT=$(dirname $DIR)
+source "$ROOT/.venv/bin/activate"
+
+python "$ROOT/core/runner.py" "$@"
+EX_CODE=$?
+deactivate
+exit $EX_CODE

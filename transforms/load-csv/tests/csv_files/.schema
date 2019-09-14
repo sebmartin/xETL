@@ -1,0 +1,5 @@
+{
+    "text_column": "TEXT",
+    "real_column": "REAL",
+    "int_column": "INTEGER"
+}
