@@ -50,12 +50,14 @@ def load_manifest_at_path(path, transforms):
 
 def execute_job_steps(job_name, steps, transforms, dryrun):
     for i, step in enumerate(steps):
+        assert 'transform' in step, 'Error: Step {} does not specify a transform to execute'.format(i + 1)
+
+        print('[Step {}] Executing transform: {}'.format(i + 1, step['transform']))
         if step.get('skip'):
             # TODO add tests for this
             print("!! Skipping step '{}' from job '{}'".format(step.get('name', '#{}'.format(i + 1)), job_name))
             continue
-        if 'transform' in step:
-            execute_transform(step, transforms, dryrun)
+        execute_transform(step, transforms, dryrun)
 
 def execute_transform(step, transforms, dryrun):
     name = step['transform']

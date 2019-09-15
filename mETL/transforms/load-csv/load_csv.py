@@ -20,6 +20,7 @@ def load_table_schema(path):
 def load_csv_rows(path):
     path = os.path.abspath(path)
     assert os.path.exists(path), 'CSV path does not exist: {}'.format(path)
+    print(' > Loading CSV at {}'.format(path))
     with open(path, 'r') as fd:
         reader = csv.reader(fd, dialect=PostgresCsvDialect())
         for row in reader:
@@ -37,6 +38,7 @@ def load(db_type, table_name, csv_path, table_schema_path, config_path):
     table_schema = load_table_schema(table_schema_path)
     with open(config_path) as fd:
         configuration = json.load(fd)
+    rows = 0
     with get_loader(db_type, **configuration) as loader:
         if loader.table_exists(table_name):
             loader.drop_table(table_name)
@@ -44,6 +46,8 @@ def load(db_type, table_name, csv_path, table_schema_path, config_path):
 
         for row in load_csv_rows(csv_path):
             loader.insert_row(table_name, table_schema, row)
+            rows += 1
+    print(' > Successfully loaded {} rows.'.format(rows))
 
 if __name__ == '__main__':
     options = ['type', 'configuration', 'table_name', 'csv_path', 'schema_path']

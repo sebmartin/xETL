@@ -20,6 +20,7 @@ class SqliteLoader(SqlBaseLoader):
         dirname = os.path.dirname(database)
         if not os.path.exists(dirname):
             os.makedirs(dirname)
+        print(' > Connecting to sqlite database at {}'.format(database))
         return sqlite3.connect(database)
 
     @property
