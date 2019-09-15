@@ -5,7 +5,7 @@ from distutils.dir_util import copy_tree
 import re
 import yaml
 
-from core import runner
+from mETL.core import runner
 
 def parse_yaml(yaml_str):
     return yaml.load(yaml_str, yaml.FullLoader)
@@ -53,7 +53,7 @@ class TestManifestDiscovery(object):
             'morgue-splitter', 'morgues-download', 'parser'
         ])
 
-    @mock.patch('core.runner.load_manifest_at_path')
+    @mock.patch('mETL.core.runner.load_manifest_at_path')
     def test_discover_transforms_ignore_test_dirs(self, load_manifest_at_path, transforms_fixtures_path, simple_transform_manifest_yml, tmpdir):
         repo_dir = tmpdir.mkdir('manifests')
         tests_dir = repo_dir.mkdir('transforms').mkdir('parser').mkdir('tests')
@@ -157,7 +157,7 @@ jobs:
       output: /tmp/data/splits
         """
 
-    @mock.patch('core.runner.execute_transform')
+    @mock.patch('mETL.core.runner.execute_transform')
     def test_run_app_simple_job(self, execute_transform, app_manifest_simple, transforms_fixtures_path):
         manifest = parse_yaml(app_manifest_simple)
         runner.run_app(manifest, transforms_repo_path=transforms_fixtures_path)
@@ -177,7 +177,7 @@ jobs:
         ]
         assert all(dryrun == False for dryrun in actual_dryruns)
 
-    @mock.patch('core.runner.execute_transform')
+    @mock.patch('mETL.core.runner.execute_transform')
     @pytest.mark.parametrize('dryrun', [True, False])
     def test_run_app_multiple_single_step_jobs(self, execute_transform, dryrun, app_manifest_multiple_single_step_jobs, transforms_fixtures_path):
         manifest = parse_yaml(app_manifest_multiple_single_step_jobs)
@@ -200,7 +200,7 @@ jobs:
         ]
         assert all(actual_dryrun == dryrun for actual_dryrun in actual_dryruns), 'Unexpected dryruns: {}'.format(list(actual_dryruns))
 
-    @mock.patch('core.runner.execute_job_steps')
+    @mock.patch('mETL.core.runner.execute_job_steps')
     def test_run_app_one_job_multiple_steps(self, execute_job_steps, app_manifest_single_multiple_step_job, transforms_fixtures_path):
         manifest = parse_yaml(app_manifest_single_multiple_step_job)
         runner.run_app(manifest, transforms_repo_path=transforms_fixtures_path)
@@ -224,9 +224,9 @@ jobs:
         ]
         assert all(actual_dryrun == False for actual_dryrun in actual_dryruns), 'Unexpected dryruns: {}'.format(list(actual_dryruns))
 
-    @mock.patch('core.runner.execute_transform')
-    @mock.patch('core.runner.temp_directory', return_value='/data/tmp/dir')
-    @mock.patch('core.runner.temp_file', return_value='/data/tmp/file')
+    @mock.patch('mETL.core.runner.execute_transform')
+    @mock.patch('mETL.core.runner.temp_directory', return_value='/data/tmp/dir')
+    @mock.patch('mETL.core.runner.temp_file', return_value='/data/tmp/file')
     def test_run_app_temp_placeholder(self, tmpfile_mock, tmpdir_mock, execute_transform, transforms_fixtures_path):
         manifest = parse_yaml("""
 name: Named placeholder
@@ -245,7 +245,7 @@ jobs:
             {'transform': 'morgues-download', 'some-file': '/data/tmp/file', 'output': '/data/tmp/dir'},
         ]
 
-    @mock.patch('core.runner.execute_transform')
+    @mock.patch('mETL.core.runner.execute_transform')
     def test_run_app_named_placeholders(self, execute_transform, transforms_fixtures_path):
         manifest = parse_yaml("""
 name: Single composed job manifest
@@ -267,7 +267,7 @@ jobs:
         actual_steps = [call[1].get('step') or call[0][0] for call in execute_transform.call_args_list]
         assert actual_steps[1]['morgues'] == actual_steps[0]['output']
 
-    @mock.patch('core.runner.execute_transform')
+    @mock.patch('mETL.core.runner.execute_transform')
     def test_run_app_named_placeholders_step_name_not_found(self, execute_transform, transforms_fixtures_path):
         manifest = parse_yaml("""
 name: Single composed job manifest
@@ -290,7 +290,7 @@ jobs:
         assert str(exc.value) == "Invalid placeholder: $unknown; valid names include: ['downloader', 'previous']"
 
 
-    @mock.patch('core.runner.execute_transform')
+    @mock.patch('mETL.core.runner.execute_transform')
     def test_run_app_named_placeholders_value_key_not_found(self, execute_transform, transforms_fixtures_path):
         manifest = parse_yaml("""
 name: Single composed job manifest
@@ -312,7 +312,7 @@ jobs:
 
         assert str(exc.value) == "Invalid placeholder: $downloader.unknown; valid option names include: ['base_url', 'name', 'output', 'throttle', 'transform']"
 
-    @mock.patch('core.runner.execute_transform')
+    @mock.patch('mETL.core.runner.execute_transform')
     def test_run_app_named_placeholders_reference_future_step(self, execute_transform, transforms_fixtures_path):
         manifest = parse_yaml("""
 name: Single composed job manifest
@@ -335,7 +335,7 @@ jobs:
 
         assert str(exc.value) == "Invalid placeholder: $splitter; valid names include: []"
 
-    @mock.patch('core.runner.execute_transform')
+    @mock.patch('mETL.core.runner.execute_transform')
     def test_run_app_named_placeholders_reference_other_job(self, execute_transform, transforms_fixtures_path):
         manifest = parse_yaml("""
 name: Single composed job manifest
@@ -358,7 +358,7 @@ jobs:
 
         assert str(exc.value) == "Invalid placeholder: $downloader; valid names include: []"
 
-    @mock.patch('core.runner.execute_job_steps')
+    @mock.patch('mETL.core.runner.execute_job_steps')
     def test_run_app_named_placeholders_circular_reference(self, execute_job_steps, transforms_fixtures_path):
         manifest = parse_yaml("""
 name: Single composed job manifest
@@ -381,7 +381,7 @@ jobs:
 
         assert str(exc.value) == "Invalid placeholder: $splitter; valid names include: []"
 
-    @mock.patch('core.runner.execute_job_steps')
+    @mock.patch('mETL.core.runner.execute_job_steps')
     def test_run_app_chained_placeholders(self, execute_job_steps, transforms_fixtures_path):
         manifest = parse_yaml("""
 name: Single composed job manifest
@@ -409,7 +409,7 @@ jobs:
         actual_base_urls = [step['base_url'] for step in actual_steps]
         assert actual_base_urls == ['http://example.com/data'] * 3
 
-    @mock.patch('core.runner.execute_job_steps')
+    @mock.patch('mETL.core.runner.execute_job_steps')
     def test_resolve_tmp_dir(self, execute_job_steps, transforms_fixtures_path, tmpdir):
         data_path = str(tmpdir.mkdir('data'))
         manifest = parse_yaml("""
@@ -435,7 +435,7 @@ jobs:
         assert actual_steps[0]['output'].startswith(data_path + '/tmp/')
         assert os.path.isdir(actual_steps[0]['output'])
 
-    @mock.patch('core.runner.execute_job_steps')
+    @mock.patch('mETL.core.runner.execute_job_steps')
     def test_resolve_tmp_file(self, execute_job_steps, transforms_fixtures_path, tmpdir):
         data_path = str(tmpdir.mkdir('data'))
         manifest = parse_yaml("""
@@ -461,7 +461,7 @@ jobs:
         assert actual_steps[0]['output'].startswith(data_path + '/tmp/')
         assert os.path.isfile(actual_steps[0]['output'])
 
-    @mock.patch('core.runner.execute_job_steps')
+    @mock.patch('mETL.core.runner.execute_job_steps')
     @pytest.mark.parametrize('placeholder, resolved', [
         ('${downloader.output}/mid/${downloader.name}', '/some/path/mid/downloader'),
         ('[${downloader.output}${downloader.name}]', '[/some/pathdownloader]'),
@@ -489,7 +489,7 @@ jobs:
         actual_steps = execute_job_steps.call_args_list[0][1].get('steps') or execute_job_steps.call_args_list[0][0][1]
         assert actual_steps[1]['output'] == resolved
 
-    @mock.patch('core.runner.execute_job_steps')
+    @mock.patch('mETL.core.runner.execute_job_steps')
     def test_resolve_variable_previous_output(self, execute_job_steps, transforms_fixtures_path):
         manifest = parse_yaml("""
 name: Single composed job manifest
@@ -512,7 +512,7 @@ jobs:
         actual_steps = execute_job_steps.call_args_list[0][1].get('steps') or execute_job_steps.call_args_list[0][0][1]
         assert actual_steps[1]['morgues'] == actual_steps[0]['output']
 
-    @mock.patch('core.runner.execute_job_steps')
+    @mock.patch('mETL.core.runner.execute_job_steps')
     def test_resolve_variable_previous_output_no_previous_output(self, execute_job_steps, transforms_fixtures_path):
         manifest = parse_yaml("""
 name: Single composed job manifest
@@ -532,7 +532,7 @@ jobs:
             runner.run_app(manifest, transforms_repo_path=transforms_fixtures_path)
         assert str(exc_info.value) == "No property named \"output\" defined in previous step. Possible values are: ['name', 'transform', 'base_url']"
 
-    @mock.patch('core.runner.execute_job_steps')
+    @mock.patch('mETL.core.runner.execute_job_steps')
     def test_resolve_variable_previous_output_first_step(self, execute_job_steps, transforms_fixtures_path):
         manifest = parse_yaml("""
 name: Single composed job manifest
@@ -549,7 +549,7 @@ jobs:
             runner.run_app(manifest, transforms_repo_path=transforms_fixtures_path)
         assert str(exc_info.value) == 'Cannot use $previous placeholder on the first step'
 
-    @mock.patch('core.runner.execute_job_steps')
+    @mock.patch('mETL.core.runner.execute_job_steps')
     def test_resolve_variable_previous_output_variable(self, execute_job_steps, transforms_fixtures_path, tmpdir):
         data_path = str(tmpdir.mkdir('data'))
         manifest = parse_yaml("""

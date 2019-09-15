@@ -181,7 +181,7 @@ def run_app(manifest, dryrun=False, transforms_repo_path=None):
     for (job_name, steps) in manifest['jobs'].items():
         execute_job_steps(job_name, steps, transforms, dryrun)
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser('App runner')
     parser.add_argument('manifest', help='Path to app manifest YAML file')
     parser.add_argument('--dryrun', action='store_true', help='Print the transform commands instead of executing them')
@@ -193,3 +193,6 @@ if __name__ == '__main__':
         exit(code=1)
 
     run_app(manifest_path, args.dryrun)
+
+if __name__ == '__main__':
+    main()
