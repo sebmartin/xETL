@@ -1,14 +1,14 @@
 name: load-csv
 env-type: python
 options:
- - type: >
+  load_type: >
      The type of database to load to; which is one of ['postgres', 'sqlite']
- - configuration: >
+  configuration: >
      The path to a local JSON file containing database configuration
      details. The structure depends on the database type.  See the README.md
      file in this directory for more details.
- - table_name: The name of the table to append the rows to.
- - csv_path: The path to a local CSV file containing the records to load.
- - schema_path: The path to a local file containing the table schema, expressed as DDL
+  table_name: The name of the table to append the rows to.
+  csv_path: The path to a local CSV file containing the records to load.
+  schema_path: The path to a local file containing the table schema, expressed as DDL
 run-command: python load_csv.py
 test-command: py.test

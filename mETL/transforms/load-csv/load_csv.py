@@ -2,6 +2,8 @@ import os
 import simplejson as json
 import csv
 
+from mETL.utils import options_parser
+
 from postgres_loader import PostgresLoader
 from sqlite_loader import SqliteLoader
 
@@ -34,12 +36,12 @@ def get_loader(type_, **configuration):
     assert type_ in LOADERS, 'Invalid loader type: {}, expected one of {}'.format(type_, LOADERS.keys())
     return LOADERS.get(type_)(**configuration)
 
-def load(db_type, table_name, csv_path, table_schema_path, config_path):
-    table_schema = load_table_schema(table_schema_path)
-    with open(config_path) as fd:
+def load(load_type, table_name, csv_path, schema_path, configuration):
+    table_schema = load_table_schema(schema_path)
+    with open(configuration) as fd:
         configuration = json.load(fd)
     rows = 0
-    with get_loader(db_type, **configuration) as loader:
+    with get_loader(load_type, **configuration) as loader:
         if loader.table_exists(table_name):
             loader.drop_table(table_name)
         loader.create_table(table_name, table_schema)
@@ -50,15 +52,5 @@ def load(db_type, table_name, csv_path, table_schema_path, config_path):
     print(' > Successfully loaded {} rows.'.format(rows))
 
 if __name__ == '__main__':
-    options = ['type', 'configuration', 'table_name', 'csv_path', 'schema_path']
-    required = options
-
-    env = {
-        option: os.environ.get(option.upper())
-        for option in options
-    }
-    missing_options = set(required) & set(option for option, value in env.items() if not value)
-    if set(required) & set(option for option, value in env.items() if not value):
-        raise Exception('Missing required options: {}'.format(missing_options))
-
-    load(env['type'], env['table_name'], env['csv_path'], env['schema_path'], env['configuration'])
+    options = options_parser.from_manifest()
+    load(**options)

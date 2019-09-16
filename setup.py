@@ -7,7 +7,7 @@ setup(
     description='A small, basic ETL library for local processing',
     version="0.0.1",
     url='https://github.com/sebmartin/mETL',
-    packages=find_namespace_packages(exclude=['tests.*']),
+    packages=find_namespace_packages(exclude=['tests', 'tests.*', '*.tests.*']),
     package_data={
         '': ['*.yml']
     },
