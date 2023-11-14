@@ -25,7 +25,7 @@ def clean_execute_call_list(call_args_list):
         return ' '.join(slug.strip() for slug in call_[0][0].split('\n') if slug.strip())
     return [clean_call(call_) for call_ in call_args_list]
 
-def test_run(loader, cursor, csv_path, table_schema_path, postgres_config_path):
+def test_run_without_schema(loader, cursor, csv_path, table_schema_path, postgres_config_path):
     load('postgres', 'my_table', csv_path, table_schema_path, postgres_config_path)
     assert clean_execute_call_list(cursor.execute.call_args_list) == [
         "SELECT EXISTS ( SELECT 1 FROM   information_schema.tables WHERE  table_schema = 'public' AND    table_name = 'my_table' );",
@@ -39,7 +39,7 @@ def test_run(loader, cursor, csv_path, table_schema_path, postgres_config_path):
             "VALUES ('CanOfBees', 20181017, '2018-10-17 13:16:48', 1449, 'D', 2, 'Found an iron altar of Okawaru.', 'an iron', 'Okawaru')",
     ]
 
-def test_run(loader, cursor, csv_path, table_schema_path, postgres_config_path):
+def test_run_with_schema(loader, cursor, csv_path, table_schema_path, postgres_config_path):
     load('postgres', 'my_schema.my_table', csv_path, table_schema_path, postgres_config_path)
     assert clean_execute_call_list(cursor.execute.call_args_list) == [
         "SELECT EXISTS ( SELECT 1 FROM   information_schema.tables WHERE  table_schema = 'my_schema' AND    table_name = 'my_table' );",
