@@ -169,7 +169,6 @@ def resolve_manifest_placeholders(manifest):
         return named_steps[step_name][option]
 
     def resolve_placeholders(value, named_steps):
-        # TODO: make sure there are tests for these core patterns
         core_pattern = re.compile(r"\$({\w+}|\w+)")
         parens_pattern = re.compile(r"\${(\w+)\.(\w+)}")
         simple_pattern = re.compile(r"\$(\w+)\.(\w+)")
@@ -203,7 +202,6 @@ def resolve_manifest_placeholders(manifest):
                     step[name] = value
                 if value.startswith("~/"):
                     # assume it's a path and expand it
-                    # TODO: add a test for this
                     step[name] = str(pathlib.PosixPath(value).expanduser())
             if "name" in step:
                 named_steps[step["name"]] = step

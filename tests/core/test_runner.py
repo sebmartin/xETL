@@ -539,6 +539,53 @@ jobs:
         assert actual_steps[0]["output"] == f"{data_path}/foo/bar/baz"
 
     @mock.patch("metl.core.runner.execute_job_steps")
+    def test_resolve_unknown_core_variable(self, execute_job_steps, transforms_fixtures_path, tmpdir):
+        data_path = str(tmpdir.mkdir("data"))
+        manifest = parse_yaml(
+            dedent(
+                f"""
+                name: Single composed job manifest
+                data: {data_path}
+                jobs:
+                  job1:
+                    - name: downloader
+                      transform: morgues-download
+                      base_url: http://example.com/data
+                      output: $unknown/foo/bar/baz
+                """
+            )
+        )
+        runner.run_app(manifest, transforms_repo_path=transforms_fixtures_path)
+
+        actual_steps = execute_job_steps.call_args_list[0][1].get("steps") or execute_job_steps.call_args_list[0][0][1]
+        assert actual_steps[0]["output"] == "$unknown/foo/bar/baz", "The output should have stayed intact"
+
+    @mock.patch("metl.core.runner.execute_job_steps")
+    @mock.patch("metl.core.runner.pathlib.PosixPath.expanduser", return_value="/User/username/foo/bar/baz")
+    def test_resolve_expand_user_dir(self, expanduser, execute_job_steps, transforms_fixtures_path, tmpdir):
+        data_path = str(tmpdir.mkdir("data"))
+        manifest = parse_yaml(
+            dedent(
+                f"""
+                name: Single composed job manifest
+                data: {data_path}
+                jobs:
+                  job1:
+                    - name: downloader
+                      transform: morgues-download
+                      base_url: http://example.com/data
+                      output: ~/foo/bar/baz
+                """
+            )
+        )
+        runner.run_app(manifest, transforms_repo_path=transforms_fixtures_path)
+
+        actual_steps = execute_job_steps.call_args_list[0][1].get("steps") or execute_job_steps.call_args_list[0][0][1]
+        assert (
+            actual_steps[0]["output"] == "/User/username/foo/bar/baz"
+        ), "The output should have resolved to the user's home directory"
+
+    @mock.patch("metl.core.runner.execute_job_steps")
     def test_resolve_tmp_dir(self, execute_job_steps, transforms_fixtures_path, tmpdir):
         data_path = str(tmpdir.mkdir("data"))
         manifest = parse_yaml(
