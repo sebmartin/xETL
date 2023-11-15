@@ -94,14 +94,17 @@ class TestManifestDiscovery(object):
         repo_dir = str(tmpdir.mkdir("transforms"))
         copy_tree(transforms_fixtures_path, repo_dir)
 
+        # comment out the parameterized required key
         yaml = re.sub(
             r"^([ \t]*{}\:)".format(required_key),
             r"# \1",
-            """
-name: invalid-manifest-transform
-type: transform
-run-command: python run.py
-        """,
+            dedent(
+                """
+                name: invalid-manifest-transform
+                type: transform
+                run-command: python run.py
+                """
+            ),
             flags=re.MULTILINE,
         )
         os.mkdir(os.path.join(repo_dir, "invalid-transform"))
@@ -117,49 +120,81 @@ run-command: python run.py
 class TestAppManifest(object):
     @pytest.fixture
     def app_manifest_simple(self):
-        return """
-name: Simple app manifest
-data: /data
-jobs:
-  my-job:
-    - transform: download
-      base_url: http://example.com/data
-      throttle: 1000
-      output: /tmp/data/morgues
-        """
+        return dedent(
+            """
+            name: Simple app manifest
+            data: /data
+            jobs:
+              my-job:
+                - transform: download
+                  base_url: http://example.com/data
+                  throttle: 1000
+                  output: /tmp/data/morgues
+            """
+        )
 
     @pytest.fixture
     def app_manifest_multiple_single_step_jobs(self):
-        return """
-name: Multiple job manifest
-data: /data
-jobs:
-  download:
-    - transform: download
-      base_url: http://example.com/data
-      throttle: 1000
-      output: /tmp/data/morgues
-  split:
-    - transform: splitter
-      morgues: /tmp/data/morgues
-      output: /tmp/data/splits
-        """
+        return dedent(
+            """
+            name: Multiple job manifest
+            data: /data
+            jobs:
+              download:
+                - transform: download
+                  base_url: http://example.com/data
+                  throttle: 1000
+                  output: /tmp/data/morgues
+              split:
+                - transform: splitter
+                  morgues: /tmp/data/morgues
+                  output: /tmp/data/splits
+            """
+        )
 
     @pytest.fixture
     def app_manifest_single_multiple_step_job(self):
-        return """
-name: Multiple job manifest
-data: /data
-jobs:
-  download:
-    - transform: download
-      base_url: http://example.com/data
-      throttle: 1000
-      output: /tmp/data/morgues
-    - transform: splitter
-      morgues: /tmp/data/morgues
-      output: /tmp/data/splits
-        """
+        return dedent(
+            """
+            name: Multiple job manifest
+            data: /data
+            jobs:
+              download:
+                - transform: download
+                  base_url: http://example.com/data
+                  throttle: 1000
+                  output: /tmp/data/morgues
+                - transform: splitter
+                  morgues: /tmp/data/morgues
+                  output: /tmp/data/splits
+            """
+        )
+
+    @pytest.fixture
+    def app_manifest_multiple_jobs_with_multiples(self):
+        return dedent(
+            """
+            name: Multiple job manifest
+            data: /data
+            jobs:
+              download-1:
+                - transform: download-1
+                  base_url: http://example.com/data1
+                  throttle: 1000
+                  output: /tmp/data1/source
+                - transform: splitter-1
+                  source: /tmp/data1/source
+                  output: /tmp/data1/splits
+              download-2:
+                - transform: download-2
+                  base_url: http://example.com/data2
+                  throttle: 1000
+                  output: /tmp/data2/source
+                - transform: splitter-2
+                  source: /tmp/data2/source
+                  output: /tmp/data2/splits
+            """
+        )
 
     @mock.patch("metl.core.runner.execute_transform")
     def test_run_app_simple_job(self, execute_transform, app_manifest_simple, transforms_fixtures_path):
@@ -186,34 +221,39 @@ jobs:
         assert sorted(actual_transform.keys()) == ["morgue-splitter", "morgues-download", "parser"]
         assert all(dryrun == False for dryrun in actual_dryruns)
 
-    @mock.patch("metl.core.runner.execute_transform")
+    @mock.patch("metl.core.runner.execute_job_steps")
     @pytest.mark.parametrize("dryrun", [True, False])
     def test_run_app_multiple_single_step_jobs(
-        self, execute_transform, dryrun, app_manifest_multiple_single_step_jobs, transforms_fixtures_path
+        self, execute_job_steps, dryrun, app_manifest_multiple_single_step_jobs, transforms_fixtures_path
     ):
         manifest = parse_yaml(app_manifest_multiple_single_step_jobs)
         runner.run_app(manifest, dryrun=dryrun, transforms_repo_path=transforms_fixtures_path)
 
-        # TODO review this test, we might need to verify that execute_job_steps is called twice instead
-        assert execute_transform.call_count == 2, "`execute_transform` was called an unexpected number of times"
-        actual_steps = [call[1].get("step") or call[0][0] for call in execute_transform.call_args_list]
-        actual_transforms = [call[1].get("transforms") or call[0][1] for call in execute_transform.call_args_list]
-        actual_dryruns = [call[1].get("dryrun") or call[0][2] for call in execute_transform.call_args_list]
+        assert execute_job_steps.call_count == 2, "`execute_job_steps` was called an unexpected number of times"
 
-        assert actual_steps == [
-            {
-                "transform": "download",
-                "base_url": "http://example.com/data",
-                "throttle": 1000,
-                "output": "/tmp/data/morgues",
-            },
-            {"transform": "splitter", "morgues": "/tmp/data/morgues", "output": "/tmp/data/splits"},
-        ]
+        # check the job_name argument for each call
+        actual_job_names = [call[1].get("job_name") or call[0][0] for call in execute_job_steps.call_args_list]
+        assert actual_job_names == ["download", "split"]
+
+        # check the steps argument for each call
+        actual_steps = [call[1].get("steps") or call[0][1] for call in execute_job_steps.call_args_list]
+        actual_steps_names = [[step["transform"] for step in steps] for steps in actual_steps]
+        assert actual_steps_names == [["download"], ["splitter"]]
+
+        # check the transforms argument for each call
+        actual_transforms = [call[1].get("transforms") or call[0][2] for call in execute_job_steps.call_args_list]
         actual_transform = actual_transforms[0]
+        assert sorted(actual_transform.keys()) == ["morgue-splitter", "morgues-download", "parser"]
         assert all(
             actual_transform == p for p in actual_transforms
         ), "Each call to `execute_transform` should have passed the same transforms dict"
-        assert sorted(actual_transform.keys()) == ["morgue-splitter", "morgues-download", "parser"]
+
+        # check the dryrun argument for each call
+        actual_dryruns = [call[1].get("dryrun") or call[0][3] for call in execute_job_steps.call_args_list]
+        assert all(actual_dryrun == dryrun for actual_dryrun in actual_dryruns), "Unexpected dryruns: {}".format(
+            list(actual_dryruns)
+        )
+
         assert all(actual_dryrun == dryrun for actual_dryrun in actual_dryruns), "Unexpected dryruns: {}".format(
             list(actual_dryruns)
         )
@@ -226,30 +266,49 @@ jobs:
         runner.run_app(manifest, transforms_repo_path=transforms_fixtures_path)
 
         assert execute_job_steps.call_count == 1, "`execute_job_steps` was called an unexpected number of times"
-        actual_job_name = [call[1].get("step") or call[0][0] for call in execute_job_steps.call_args_list]
-        actual_steps = [call[1].get("step") or call[0][1] for call in execute_job_steps.call_args_list]
+
+        # check the job_name argument for each call
+        actual_job_names = [call[1].get("job_name") or call[0][0] for call in execute_job_steps.call_args_list]
+        assert actual_job_names == ["download"]
+
+        # check the steps argument for each call
+        actual_steps = [call[1].get("steps") or call[0][1] for call in execute_job_steps.call_args_list]
+        actual_steps_names = [[step["transform"] for step in steps] for steps in actual_steps]
+        assert actual_steps_names == [["download", "splitter"]]
+
+        # check the transforms argument for each call
         actual_transforms = [call[1].get("transforms") or call[0][2] for call in execute_job_steps.call_args_list]
-        actual_dryruns = [call[1].get("dryrun") or call[0][3] for call in execute_job_steps.call_args_list]
-        assert actual_job_name == ["download"]
-        assert actual_steps == [
-            [
-                {
-                    "transform": "download",
-                    "base_url": "http://example.com/data",
-                    "throttle": 1000,
-                    "output": "/tmp/data/morgues",
-                },
-                {"transform": "splitter", "morgues": "/tmp/data/morgues", "output": "/tmp/data/splits"},
-            ]
-        ]
         actual_transform = actual_transforms[0]
+        assert sorted(actual_transform.keys()) == ["morgue-splitter", "morgues-download", "parser"]
         assert all(
             actual_transform == p for p in actual_transforms
         ), "Each call to `execute_transform` should have passed the same transforms dict"
-        assert sorted(actual_transform.keys()) == ["morgue-splitter", "morgues-download", "parser"]
-        assert all(actual_dryrun == False for actual_dryrun in actual_dryruns), "Unexpected dryruns: {}".format(
-            list(actual_dryruns)
-        )
+
+    @pytest.mark.parametrize(
+        "skip_to, expected_steps",
+        [
+            ("download-1", [["download-1", "splitter-1"], ["download-2", "splitter-2"]]),
+            ("download-2", [["download-2", "splitter-2"]]),
+            ("download-1.splitter-1", [["splitter-1"], ["download-2", "splitter-2"]]),
+            ("download-2.splitter-2", [["splitter-2"]]),
+        ],
+        ids=["skip-to-job-1", "skip-to-job-2", "skip-to-job1-step-2", "skip-to-job2-step-2"],
+    )
+    @mock.patch("metl.core.runner.execute_job_steps")
+    def test_run_app_skip_to(
+        self,
+        execute_job_steps,
+        skip_to,
+        expected_steps,
+        app_manifest_multiple_jobs_with_multiples,
+        transforms_fixtures_path,
+    ):
+        manifest = parse_yaml(app_manifest_multiple_jobs_with_multiples)
+        runner.run_app(manifest, skip_to=skip_to, transforms_repo_path=transforms_fixtures_path)
+
+        actual_steps = [call[1].get("steps") or call[0][1] for call in execute_job_steps.call_args_list]
+        actual_steps_names = [[step["transform"] for step in steps] for steps in actual_steps]
+        assert actual_steps_names == expected_steps
 
     @mock.patch("metl.core.runner.execute_transform")
     @mock.patch("metl.core.runner.temp_directory", return_value="/data/tmp/dir")
@@ -463,11 +522,11 @@ jobs:
                 name: Single composed job manifest
                 data: {data_path}
                 jobs:
-                job1:
+                  job1:
                     - name: downloader
-                    transform: morgues-download
-                    base_url: http://example.com/data
-                    output: $data/foo/bar/baz
+                      transform: morgues-download
+                      base_url: http://example.com/data
+                      output: $data/foo/bar/baz
                 """
             )
         )

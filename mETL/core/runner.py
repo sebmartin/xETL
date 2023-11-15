@@ -29,6 +29,11 @@ def load_yaml(path) -> Optional[dict]:
 
 
 def discover_transforms(transforms_repo_path):
+    """
+    Walks a directory and loads all transforms found in subdirectories. Transforms are identified by the presence of a
+    manifest.yml file in the directory. The manifest file must contain a `name` and `run-command` field.
+    Returns a dictionary of transforms keyed by their name.
+    """
     transforms_paths = [path[0] for path in os.walk(transforms_repo_path) if "manifest.yml" in path[2]]
     transforms = {}
     for path in transforms_paths:
@@ -55,7 +60,6 @@ def execute_job_steps(job_name, steps, transforms, dryrun):
     for i, step in enumerate(steps):
         with log_context(LogContext.STEP, f"Running transform: {step['transform']}"):
             if step.get("skip"):
-                # TODO add tests for this
                 logger.warning(
                     "Skipping step '{}' from job '{}'".format(step.get("name", "#{}".format(i + 1)), job_name)
                 )
@@ -231,7 +235,6 @@ def run_app(manifest: str, skip_to: str | None = None, dryrun=False, transforms_
         pprint(transforms, width=140)
 
     for job_name, steps in manifest["jobs"].items():
-        # TODO: test this
         with log_context(LogContext.JOB, f"Running job: {job_name}"):
             if skip_to:
                 if job_name != skip_to and f"{job_name}." not in skip_to:
