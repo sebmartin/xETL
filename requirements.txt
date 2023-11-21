@@ -26,6 +26,7 @@ prompt-toolkit
 psycopg2-binary
 ptyprocess
 py
+pydantic
 Pygments
 pylint
 pytest

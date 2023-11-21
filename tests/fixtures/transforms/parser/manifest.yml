@@ -2,6 +2,6 @@ name: parser
 env-type: python
 run-command: python run.py
 options:
- - files: A local path to a directory containing raw morgue files
- - output: A local path to store the output
+  files: A local path to a directory containing raw morgue files
+  output: A local path to store the output
 test-command: py.test

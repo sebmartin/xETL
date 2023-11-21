@@ -2,8 +2,8 @@ name: morgues-download
 env-type: python
 run-command: python run.py
 options:
- - base_url: URL to the file listing to crawl (supports Apache/2.4.10 Server)
- - force: Will always download morgues, even if they exist locally
- - throttle: Minimum number of milliseconds to enforce between server calls
- - output: Path to directory where the files will be downloaded
+  base-url: URL to the file listing to crawl (supports Apache/2.4.10 Server)
+  force: Will always download morgues, even if they exist locally
+  throttle: Minimum number of milliseconds to enforce between server calls
+  output: Path to directory where the files will be downloaded
 test-command: py.test
