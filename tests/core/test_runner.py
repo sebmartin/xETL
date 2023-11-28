@@ -1,4 +1,5 @@
-import os
+import re
+import subprocess
 from textwrap import dedent
 import pytest
 import mock
@@ -6,16 +7,20 @@ import yaml
 
 from metl.core import runner
 from metl.core.models.app import Step
-from metl.core.models.transform import Transform
+from metl.core.models.transform import Transform, TransformFailure
 
 
 def parse_yaml(yaml_str):
     return yaml.load(yaml_str, yaml.FullLoader)
 
 
+def strip_dates(string):
+    return re.sub(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+", "2023-11-23 21:36:52.983", string)
+
+
 @mock.patch("subprocess.run", mock.Mock())
 class TestAppManifest(object):
-    @mock.patch("metl.core.runner.execute_transform")
+    @mock.patch("metl.core.runner.execute_transform", return_value=0)
     def test_run_app_simple_job(self, execute_transform, app_manifest_simple_path, transforms_fixtures_path):
         runner.run_app(app_manifest_simple_path, transforms_repo_path=transforms_fixtures_path)
 
@@ -27,17 +32,20 @@ class TestAppManifest(object):
         assert actual_steps == [
             Step(
                 transform="download",
-                args={"base_url": "http://example.com/data", "throttle": 1000},
-                output="/tmp/data/morgues",
+                env={
+                    "BASE_URL": "http://example.com/data",
+                    "THROTTLE": 1000,
+                    "OUTPUT": "/tmp/data",
+                },
             )
         ]
         actual_transform = actual_transforms[0]
         assert all(
             actual_transform == p for p in actual_transforms
         ), "Each call to `execute_transform` should have passed the same transforms dict"
-        assert sorted(actual_transform.keys()) == ["morgue-splitter", "morgues-download", "parser"]
+        assert sorted(actual_transform.keys()) == ["download", "parser", "splitter"]
         assert all(isinstance(t, Transform) for t in actual_transform.values())
-        assert all(dryrun == False for dryrun in actual_dryruns)
+        assert all(dryrun is False for dryrun in actual_dryruns)
 
     @mock.patch("metl.core.runner.execute_job_steps")
     @pytest.mark.parametrize("dryrun", [True, False])
@@ -62,7 +70,7 @@ class TestAppManifest(object):
         # check the transforms argument for each call
         actual_transforms = [call[1].get("transforms") or call[0][2] for call in execute_job_steps.call_args_list]
         actual_transform = actual_transforms[0]
-        assert sorted(actual_transform.keys()) == ["morgue-splitter", "morgues-download", "parser"]
+        assert sorted(actual_transform.keys()) == ["download", "parser", "splitter"]
         assert all(
             actual_transform == p for p in actual_transforms
         ), "Each call to `execute_transform` should have passed the same transforms dict"
@@ -97,10 +105,20 @@ class TestAppManifest(object):
         # check the transforms argument for each call
         actual_transforms = [call[1].get("transforms") or call[0][2] for call in execute_job_steps.call_args_list]
         actual_transform = actual_transforms[0]
-        assert sorted(actual_transform.keys()) == ["morgue-splitter", "morgues-download", "parser"]
+        assert sorted(actual_transform.keys()) == ["download", "parser", "splitter"]
         assert all(
             actual_transform == p for p in actual_transforms
         ), "Each call to `execute_transform` should have passed the same transforms dict"
+
+    @mock.patch("metl.core.runner.execute_transform", return_value=127)
+    def test_run_stops_if_step_fails(
+        self, execute_transform, app_manifest_single_multiple_step_job_path, transforms_fixtures_path, tmpdir
+    ):
+        with pytest.raises(TransformFailure) as excinfo:
+            runner.run_app(app_manifest_single_multiple_step_job_path, transforms_repo_path=transforms_fixtures_path)
+
+        assert execute_transform.call_count == 1, "execute_transform() should have only been called once"
+        assert excinfo.value.returncode == 127, "The exception should contain the return code of the failed transform"
 
     @pytest.mark.parametrize(
         "skip_to, expected_steps",
@@ -130,3 +148,119 @@ class TestAppManifest(object):
         actual_steps = [call[1].get("steps") or call[0][1] for call in execute_job_steps.call_args_list]
         actual_steps_names = [[step.name for step in steps] for steps in actual_steps]
         assert actual_steps_names == expected_steps
+
+
+class TestRunnerEndToEnd:
+    def test_run_app_dryrun(self, tmpdir):
+        output_dir = tmpdir.mkdir("output")
+        input_dir = tmpdir.mkdir("input")
+        input_dir.join("file1.txt").write_text("file1", encoding="utf-8")
+        input_dir.join("file2.txt").write_text("file2", encoding="utf-8")
+
+        app = dedent(
+            f"""
+            name: test-app
+            description: A test app to run end-to-end tests on
+            data: {output_dir}
+            jobs:
+              main:
+                - name: list
+                  transform: list-files
+                  env:
+                    PATH: {input_dir}
+                    OUTPUT: $data/files.txt
+                - name: cat
+                  transform: cat-files
+                  env:
+                    FILES: ${{previous.env.OUTPUT}}
+                    OUTPUT: $data/cat.txt
+            """
+        )
+        (tmpdir / "app.yml").write_text(app, encoding="utf-8")
+
+        transforms_repo_path = tmpdir.mkdir("transforms")
+        list_files_transform = dedent(
+            """
+            name: list-files
+            description: List files in a directory
+            env-type: bash
+            env:
+              PATH: Path to list files in
+              OUTPUT: File to write list of files to
+            run-command: ls -la $PATH > $OUTPUT
+            """
+        )
+        (transforms_repo_path.mkdir("list-files") / "manifest.yml").write_text(list_files_transform, encoding="utf-8")
+
+        cat_files_transform = dedent(
+            """
+            name: cat-files
+            description: Concatenate files listed in an input file
+            env-type: bash
+            env:
+              FILES: File containing filenames to concatenate
+              OUTPUT: File to write concatenated files to
+            run-command: cat $FILES | xargs cat > $OUTPUT
+            """
+        )
+        (transforms_repo_path.mkdir("cat-files") / "manifest.yml").write_text(cat_files_transform, encoding="utf-8")
+
+        # runner.run_app(str(tmpdir / "app.yml"), transforms_repo_path=transforms_repo_path)
+        result = subprocess.run(
+            [
+                ".venv/bin/python",
+                "-m",
+                "metl",
+                # "--help"
+                str(tmpdir / "app.yml"),
+                "--transforms",
+                str(transforms_repo_path),
+                "--dryrun",
+            ],
+            capture_output=True,
+        )
+
+        expected_output = dedent(
+            """
+            ╭──╴Running app: {data_dir}/app.yml ╶╴╴╶ ╶
+            │ Loading app manifest at: {data_dir}/app.yml
+            │ Manifest parsed as:
+            │ Discovering transforms at: {data_dir}/transforms
+            │ Loading transform at: {data_dir}/transforms/list-files/manifest.yml
+            │ Loading transform at: {data_dir}/transforms/cat-files/manifest.yml
+            │ Available transforms detected:
+            ╔══╸Running job: main ═╴╴╶ ╶
+            ║ Running step: #1
+            ║   name: list
+            ║   description: null
+            ║   transform: list-files
+            ║   env:
+            ║     PATH: {data_dir}/input
+            ║     OUTPUT: {data_dir}/output/files.txt
+            ║   skip: false
+            ║┏━━╸Running transform: list-files ━╴╴╶ ╶
+            ║┃2023-11-23 21:36:52.982┊ DRYRUN: Would execute with:
+            ║┃2023-11-23 21:36:52.982┊   command: ['ls', '-la', '$PATH', '>', '$OUTPUT']
+            ║┃2023-11-23 21:36:52.982┊   cwd: {data_dir}/transforms/list-files
+            ║┃2023-11-23 21:36:52.982┊   env: PATH={data_dir}/input, OUTPUT={data_dir}/output/files.txt
+            ║┗━━╸Return code: 0 ━╴╴╶ ╶
+            ║{space}
+            ║ Running step: #2
+            ║   name: cat
+            ║   description: null
+            ║   transform: cat-files
+            ║   env:
+            ║     FILES: {data_dir}/output/files.txt
+            ║     OUTPUT: {data_dir}/output/cat.txt
+            ║   skip: false
+            ║┏━━╸Running transform: cat-files ━╴╴╶ ╶
+            ║┃2023-11-23 21:36:52.983┊ DRYRUN: Would execute with:
+            ║┃2023-11-23 21:36:52.983┊   command: ['cat', '$FILES', '|', 'xargs', 'cat', '>', '$OUTPUT']
+            ║┃2023-11-23 21:36:52.983┊   cwd: {data_dir}/transforms/cat-files
+            ║┃2023-11-23 21:36:52.983┊   env: FILES={data_dir}/output/files.txt, OUTPUT={data_dir}/output/cat.txt
+            ║┗━━╸Return code: 0 ━╴╴╶ ╶
+            │ Done! \\o/
+            """
+        ).format(data_dir=str(tmpdir), space=" ")
+        actual_result = result.stderr.decode("utf-8")
+        assert strip_dates(actual_result.strip()) == strip_dates(expected_output.strip())

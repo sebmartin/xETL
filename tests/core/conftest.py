@@ -24,10 +24,10 @@ def app_manifest_simple():
         jobs:
           my-job:
             - transform: download
-              output: /tmp/data/morgues
-              args:
-                base_url: http://example.com/data
-                throttle: 1000
+              env:
+                BASE_URL: http://example.com/data
+                THROTTLE: 1000
+                OUTPUT: /tmp/data
         """
     )
 
@@ -46,15 +46,15 @@ def app_manifest_multiple_single_step_jobs():
         jobs:
           download:
             - transform: download
-              output: /tmp/data/morgues
-              args:
-                base_url: http://example.com/data
-                throttle: 1000
+              env:
+                BASE_URL: http://example.com/data
+                THROTTLE: 1000
+                OUTPUT: /tmp/data
           split:
             - transform: splitter
-              output: /tmp/data/splits
-              args:
-                morgues: /tmp/data/morgues
+              env:
+                FILES: /tmp/data
+                OUTPUT: /tmp/data/splits
         """
     )
 
@@ -73,14 +73,14 @@ def app_manifest_single_multiple_step_job():
         jobs:
           download:
             - transform: download
-              output: /tmp/data/morgues
-              args:
-                base_url: http://example.com/data
-                throttle: 1000
+              env:
+                BASE_URL: http://example.com/data
+                THROTTLE: 1000
+                OUTPUT: /tmp/data
             - transform: splitter
-              output: /tmp/data/splits
-              args:
-                morgues: /tmp/data/morgues
+              env:
+                FILES: /tmp/data
+                OUTPUT: /tmp/data/splits
         """
     )
 
@@ -100,27 +100,27 @@ def app_manifest_multiple_jobs_with_multiples():
           download-1:
             - name: download-1
               transform: download
-              output: /tmp/data1/source
-              args:
-                base_url: http://example.com/data1
-                throttle: 1000
+              env:
+                BASE_URL: http://example.com/data1
+                THROTTLE: 1000
+                OUTPUT: /tmp/data1/source
             - name: splitter-1
               transform: splitter
-              output: /tmp/data1/splits
-              args:
+              env:
                 source: /tmp/data1/source
+                OUTPUT: /tmp/data1/splits
           download-2:
             - name: download-2
               transform: download
-              output: /tmp/data2/source
-              args:
-                base_url: http://example.com/data2
-                throttle: 1000
+              env:
+                BASE_URL: http://example.com/data2
+                THROTTLE: 1000
+                OUTPUT: /tmp/data2/source
             - name: splitter-2
               transform: splitter
-              output: /tmp/data2/splits
-              args:
+              env:
                 source: /tmp/data2/source
+                OUTPUT: /tmp/data2/splits
         """
     )
 

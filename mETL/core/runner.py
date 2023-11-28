@@ -3,9 +3,11 @@ import logging
 import os
 from pprint import pprint
 
+import yaml
+
 from metl.core.logging import LogContext, log_context
 from metl.core.models.app import App, Step
-from metl.core.models.transform import Transform, discover_transforms
+from metl.core.models.transform import Transform, TransformFailure, discover_transforms
 
 TRANSFORMS_REPO_PATH = os.path.abspath(os.path.dirname(__file__) + "/../transforms")
 
@@ -17,11 +19,11 @@ def run_app(manifest_path: str, skip_to: str | None = None, dryrun=False, transf
     app = App.from_file(manifest_path)
     if dryrun:
         logger.info("Manifest parsed as:")
-        pprint(app, width=140)
-
-    logger.info("Parsed manifest for app: {}".format(app.name))
-    logger.info("Discovering steps...")
+        pprint(app, width=140)  # TODO: this doesn't get logged
+    else:
+        logger.info("Parsed manifest for app: {}".format(app.name))
     transforms_repo_path = transforms_repo_path or TRANSFORMS_REPO_PATH
+    logger.info(f"Discovering transforms at: {transforms_repo_path}")
     transforms = discover_transforms(transforms_repo_path)
 
     if not transforms:
@@ -49,41 +51,30 @@ def run_app(manifest_path: str, skip_to: str | None = None, dryrun=False, transf
 
             execute_job_steps(job_name, steps, transforms, dryrun)
 
-    logger.info("Done! \o/")
+    logger.info("Done! \\o/")
 
 
 def execute_job_steps(job_name: str, steps: list[Step], transforms: dict[str, Transform], dryrun: bool):
     for i, step in enumerate(steps):
-        with log_context(LogContext.STEP, f"Running transform: {step.transform}"):
+        if i > 0:
+            logger.info("")
+        logger.info(f"Running step: {f'#{i + 1}'}")
+        for line in yaml.dump(step.model_dump(), indent=2, sort_keys=False).strip().split("\n"):
+            logger.info("  " + line)
+        with log_context(LogContext.STEP, f"Running transform: {step.transform}") as tail:
             if step.skip:
                 logger.warning(f"Skipping step `{step.name or f'#{i + 1}'}` from job '{job_name}'")
                 continue
-            execute_transform(step, transforms, dryrun)
+            returncode = execute_transform(step, transforms, dryrun)
+            tail(f"Return code: {returncode}")
+
+        if returncode != 0:
+            raise TransformFailure(returncode=returncode)
 
 
-def execute_transform(step: Step, transforms: dict[str, Transform], dryrun):
+def execute_transform(step: Step, transforms: dict[str, Transform], dryrun) -> int:
     name = step.transform
 
     # TODO: add test for this this --v
     assert name in transforms, "Unknown transform: {}, should be one of: {}".format(name, set(transforms.keys()))
-    transforms[name].execute(step, dryrun)
-
-
-def main():
-    parser = argparse.ArgumentParser("App runner")
-    parser.add_argument("manifest", help="Path to app manifest YAML file")
-    parser.add_argument("skip-to", default=None, help="Name of job (and optionally step) to skip to")
-    parser.add_argument("--dryrun", action="store_true", help="Print the transform commands instead of executing them")
-    args = parser.parse_args()
-
-    manifest_path = os.path.abspath(args.manifest)
-    if not os.path.exists(manifest_path):
-        print("File does not exist: {}".format(manifest_path))
-        exit(code=1)
-
-    with log_context(LogContext.APP, "Running app: {}".format(manifest_path)):
-        run_app(manifest_path, skip_to=args.skip_to, dryrun=args.dryrun)
-
-
-if __name__ == "__main__":
-    main()
+    return transforms[name].execute(step, dryrun)

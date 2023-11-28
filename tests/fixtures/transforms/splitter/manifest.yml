@@ -1,7 +1,7 @@
-name: morgue-splitter
+name: splitter
 env-type: python
-options:
-  morgues: A local path to a directory containing raw morgue files
-  output: A local path to store the output
-run-command: python morgue_splitter-0.23.py
+env:
+  FILES: A local path to a directory containing raw files
+  OUTPUT: A local path to store the output
+run-command: python splitter-0.23.py
 test-command: py.test

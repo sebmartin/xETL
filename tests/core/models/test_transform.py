@@ -25,9 +25,10 @@ def simple_transform_manifest_yml():
         name: simple-transform
         type: transform
         env-type: python
-        options:
+        env:
           foo: bar
           option-with-hyphens: value
+          output: /tmp/data/
         run-command: python run.py
         test-command: py.test
         """
@@ -40,6 +41,22 @@ def simple_transform_manifest_path(simple_transform_manifest_yml, tmpdir):
 
 
 @pytest.fixture
+def bash_command_transform_manifest_yml():
+    return dedent(
+        """
+        name: bash-command-transform
+        env-type: bash
+        run-command: ls -l ~/
+        """
+    )
+
+
+@pytest.fixture
+def bash_command_transform_manifest_path(bash_command_transform_manifest_yml, tmpdir):
+    return transform_file(bash_command_transform_manifest_yml, tmpdir)
+
+
+@pytest.fixture
 def complex_command_transform_manifest_yml():
     return dedent(
         """
@@ -47,7 +64,6 @@ def complex_command_transform_manifest_yml():
         type: transform
         env-type: bash
         run-command: echo "hello world" | awk '{print $2}'
-        test-command: test.sh
         """
     )
 
@@ -65,8 +81,8 @@ class TestDiscoverTransforms:
 
         assert sorted(names_and_paths) == sorted(
             [
-                ("morgue-splitter", "{repo_dir}/transforms/splitter".format(repo_dir=transforms_fixtures_path)),
-                ("morgues-download", "{repo_dir}/transforms/download".format(repo_dir=transforms_fixtures_path)),
+                ("splitter", "{repo_dir}/transforms/splitter".format(repo_dir=transforms_fixtures_path)),
+                ("download", "{repo_dir}/transforms/download".format(repo_dir=transforms_fixtures_path)),
                 ("parser", "{repo_dir}/transforms/parser".format(repo_dir=transforms_fixtures_path)),
             ]
         )
@@ -81,7 +97,7 @@ class TestDiscoverTransforms:
 
         transforms = discover_transforms(repo_dir)
 
-        assert sorted(transforms.keys()) == sorted(["morgue-splitter", "morgues-download", "parser"])
+        assert sorted(transforms.keys()) == sorted(["splitter", "download", "parser"])
 
     @mock.patch("metl.core.models.transform.load_transform_at_path")
     def test_discover_transforms_ignore_test_dirs(
@@ -113,7 +129,7 @@ class TestDiscoverTransforms:
 
         transforms = discover_transforms(repo_dir)
 
-        assert sorted(transforms.keys()) == sorted(["morgue-splitter", "morgues-download", "parser"])
+        assert sorted(transforms.keys()) == sorted(["splitter", "download", "parser"])
 
     @pytest.mark.parametrize("required_key", ["name", "run-command"])
     def test_discover_transforms_ignore_missing_required_manifest_field(
@@ -141,7 +157,7 @@ class TestDiscoverTransforms:
 
         transforms = discover_transforms(repo_dir)
 
-        assert sorted(transforms.keys()) == ["morgue-splitter", "morgues-download", "parser"]
+        assert sorted(transforms.keys()) == ["download", "parser", "splitter"]
 
 
 class TestDeserialization:
@@ -151,19 +167,16 @@ class TestDeserialization:
         assert transform.name == "simple-transform"
         assert transform.path == os.path.dirname(simple_transform_manifest_path)
         assert transform.env_type == EnvType.PYTHON
-        assert transform.options == {
-            "foo": "bar",
-            "option-with-hyphens": "value",
-        }
+        assert transform.env == {
+            "FOO": "bar",
+            "OPTION_WITH_HYPHENS": "value",
+            "OUTPUT": "/tmp/data/",
+        }, "The env variable names should have been transformed to uppercase and hyphens replaced with underscores"
         assert transform.run_command == "python run.py"
         assert transform.test_command == "py.test"
 
 
 class TestExecuteTransform:
-    # @pytest.fixture
-    # def mock_process():
-    #     mock_process = mock.Mock()
-
     @pytest.fixture(autouse=True)
     def mock_popen(self):
         with mock.patch("metl.core.models.transform.subprocess.Popen") as mock_popen:
@@ -186,17 +199,16 @@ class TestExecuteTransform:
     def test_execute_transform(self, simple_transform_manifest_path, mock_logger, mock_popen):
         transform = Transform.from_file(simple_transform_manifest_path)
         step = Step(
-            transform="simple-transform", args={"foo": "bar", "option-with-hyphens": "baz"}, output="/tmp/data/morgues"
+            transform="simple-transform",
         )
 
         transform.execute(step, dryrun=False)
 
         assert mock_logger.method_calls == [
-            call.info(f"Loading transform manifest at: {simple_transform_manifest_path}"),
+            call.info(f"Loading transform at: {simple_transform_manifest_path}"),
             call.info("Now executing transform."),
             call.info("Still executing."),
             call.info("All done."),
-            call.info("Return code: 0"),
         ]
 
         assert mock_popen.call_args[1]["shell"] is False, "A python transform should run with shell=False"
@@ -207,36 +219,56 @@ class TestExecuteTransform:
     def test_execute_transform_dryrun(self, simple_transform_manifest_path, mock_logger):
         transform = Transform.from_file(simple_transform_manifest_path)
         step = Step(
-            transform="simple-transform", args={"foo": "bar", "option-with-hyphens": "baz"}, output="/tmp/data/morgues"
+            transform="simple-transform",
+            env={
+                "foo": "bar",
+                "option-with-hyphens": "baz",
+                "output": "/tmp/data",
+            },
         )
 
         transform.execute(step, dryrun=True)
         assert mock_logger.method_calls == [
-            call.info(f"Loading transform manifest at: {simple_transform_manifest_path}"),
+            call.info(f"Loading transform at: {simple_transform_manifest_path}"),
             call.info("DRYRUN: Would execute with:"),
             call.info("  command: ['python', 'run.py']"),
             call.info(f"  cwd: {os.path.dirname(simple_transform_manifest_path)}"),
-            call.info("  args: {'FOO': 'bar', 'OPTION_WITH_HYPHENS': 'baz'}"),
+            call.info("  env: FOO=bar, OPTION_WITH_HYPHENS=baz, OUTPUT=/tmp/data"),
         ]
 
     def test_execute_transform_invalid_args(self, simple_transform_manifest_path, mock_logger):
         transform = Transform.from_file(simple_transform_manifest_path)
         step = Step(
             transform="simple-transform",
-            args={"foo": "bar", "invalid-arg": "baz", "another_unknown": "fooz"},
-            output="/tmp/data/morgues",
+            env={
+                "foo": "bar",
+                "invalid-arg": "baz",
+                "another_unknown": "fooz",
+                "output": "/tmp/data",
+            },
         )
 
         with pytest.raises(ValueError) as exc:
             transform.execute(step)
         assert str(exc.value) == (
-            "Invalid arguments for transform `simple-transform`: invalid-arg, another_unknown. "
-            "Valid arguments are: foo, option-with-hyphens"
+            "Invalid input for transform `simple-transform`: INVALID_ARG, ANOTHER_UNKNOWN. "
+            "Valid inputs are: FOO, OPTION_WITH_HYPHENS, OUTPUT"
         )
+
+    def test_execute_transform_with_bash_command(self, bash_command_transform_manifest_path, mock_popen):
+        transform = Transform.from_file(bash_command_transform_manifest_path)
+        step = Step(transform="complex-command-transform")
+
+        transform.execute(step, dryrun=False)
+
+        popen_args = mock_popen.call_args[0][0]
+        assert popen_args == ["ls", "-l", "~/"], "Command and argument whould be split"
+        assert mock_popen.call_args[1]["shell"] is True, "A bash transform should run with shell=True"
+        assert mock_popen.call_args[1]["cwd"] == os.path.dirname(bash_command_transform_manifest_path)
 
     def test_execute_transform_with_complex_command(self, complex_command_transform_manifest_path, mock_popen):
         transform = Transform.from_file(complex_command_transform_manifest_path)
-        step = Step(transform="complex-command-transform", args={}, output="/tmp/data/morgues")
+        step = Step(transform="complex-command-transform")
 
         transform.execute(step, dryrun=False)
 

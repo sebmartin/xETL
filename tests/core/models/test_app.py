@@ -17,19 +17,24 @@ def fake_abspath(path):
     return f"/absolute/path/to/{path}"
 
 
+# TODO: add tests for steps?
+
+
 @pytest.mark.parametrize(
     "placeholder, resolved",
     [
-        ("${downloader.output}/mid/${downloader.name}", "/some/path/mid/downloader"),
-        ("[${downloader.output}${downloader.name}]", "[/some/pathdownloader]"),
-        ("${downloader.output}$downloader.name", "/some/path$downloader.name"),
-        ("${downloader.output}/${previous.args.method}", "/some/path/GET"),
-        ("${downloader.output}/$$${previous.args.method}", "/some/path/$GET"),
+        ("${downloader.env.output}/mid/${downloader.name}", "/some/path/mid/downloader"),
+        ("[${downloader.env.output}${downloader.name}]", "[/some/pathdownloader]"),
+        ("${downloader.env.output}$downloader.name", "/some/path$downloader.name"),
+        ("${downloader.env.output}/${previous.env.method}", "/some/path/GET"),
+        ("${downloader.env.output}/$$${previous.env.method}", "/some/path/$GET"),
         ("$$$${downloader.output}", "$${downloader.output}"),
-        ("$downloader.args.base_url", "$downloader.args.base_url"),
-        ("[${downloader.args.base_url}]", "[http://example.com/data]"),
-        ("[$data] *${downloader.transform}* $$${downloader.args.method}$", "[/data] *download* $GET$"),
+        ("$downloader.env.base_url", "$downloader.env.base_url"),
+        ("[${downloader.env.base_url}]", "[http://example.com/data]"),
+        ("[$data] *${downloader.transform}* $$${downloader.env.method}$", "[/data] *download* $GET$"),
         ("~/relative/path/${downloader.name}", "/User/username/relative/path/downloader"),
+        ("${previous.env.output}", "/some/path"),
+        ("${previous.env.OUTPUT}", "/some/path"),
     ],
 )
 @mock.patch("metl.core.models.app.os.path.expanduser", side_effect=fake_expanduser)
@@ -42,18 +47,19 @@ def test_resolve_placeholders(_, placeholder, resolved):
           job1:
             - name: downloader
               transform: download
-              output: /some/path
-              args:
-                method: GET
-                base_url: http://example.com/data
+              env:
+                METHOD: GET
+                BASE_URL: http://example.com/data
+                OUTPUT: /some/path
             - name: splitter
               transform: split
-              output: '{placeholder}'
+              env:
+                OUTPUT: '{placeholder}'
         """
     )
     app = App.from_yaml(manifest)
 
-    assert app.jobs["job1"][1].output == resolved
+    assert app.jobs["job1"][1].env["OUTPUT"] == resolved
 
 
 @mock.patch("metl.core.models.app.os.path.abspath", side_effect=fake_abspath)
@@ -66,15 +72,15 @@ def test_resolve_placeholders_expands_relative_data_dir(_):
           job1:
             - name: downloader
               transform: download
-              output: $data/downloader/output
-              args:
-                base_url: http://example.com/data
+              env:
+                BASE_URL: http://example.com/data
+                OUTPUT: $data/downloader/output
         """
     )
     app = App.from_yaml(manifest)
 
     assert app.data == "/absolute/path/to/relative/data/path"
-    assert app.jobs["job1"][0].output == f"{app.data}/downloader/output"
+    assert app.jobs["job1"][0].env["OUTPUT"] == f"{app.data}/downloader/output"
 
 
 def test_resolve_doesnt_expand_absolute_data_dir():
@@ -86,15 +92,15 @@ def test_resolve_doesnt_expand_absolute_data_dir():
           job1:
             - name: downloader
               transform: download
-              output: $data/downloader/output
-              args:
-                base_url: http://example.com/data
+              env:
+                BASE_URL: http://example.com/data
+                OUTPUT: $data/downloader/output
         """
     )
     app = App.from_yaml(manifest)
 
     assert app.data == "/data/path"
-    assert app.jobs["job1"][0].output == f"{app.data}/downloader/output"
+    assert app.jobs["job1"][0].env["OUTPUT"] == f"{app.data}/downloader/output"
 
 
 def test_resolve_unknown_app_variable():
@@ -106,14 +112,14 @@ def test_resolve_unknown_app_variable():
           job1:
             - name: downloader
               transform: download
-              output: $unknown/foo/bar/baz
-              args:
-                base_url: http://example.com/data
+              env:
+                BASE_URL: http://example.com/data
+                OUTPUT: $unknown/foo/bar/baz
         """
     )
     app = App.from_yaml(manifest)
 
-    assert app.jobs["job1"][0].output == "$unknown/foo/bar/baz", "The output should have stayed intact"
+    assert app.jobs["job1"][0].env["OUTPUT"] == "$unknown/foo/bar/baz", "The output should have stayed intact"
 
 
 def test_resolve_tmp_dir(tmpdir):
@@ -126,23 +132,27 @@ def test_resolve_tmp_dir(tmpdir):
           job1:
             - name: downloader
               transform: download
-              output: ${{tmp.dir}}
-              args:
-                base_url: http://example.com/data
+              env:
+                BASE_URL: http://example.com/data
+                OUTPUT: ${{tmp.dir}}
             - name: splitter
               transform: split
-              output: ${{tmp.dir}}
-              args:
-                foo: bar
+              env:
+                FOO: bar
+                OUTPUT: ${{tmp.dir}}
         """
     )
     app = App.from_yaml(manifest)
 
     assert all(
-        step.output.startswith(data_path + "/tmp/") for step in app.jobs["job1"]
-    ), f"All steps should output to a tmp directory: {[s.output for s in app.jobs['job1']]}"
-    assert all(os.path.isdir(step.output) for step in app.jobs["job1"]), "Each output should be a directory"
-    app.jobs["job1"][0].output != app.jobs["job1"][1].output, "Every tmp value should be a different value"
+        isinstance(step.env["OUTPUT"], str) and step.env["OUTPUT"].startswith(data_path + "/tmp/")
+        for step in app.jobs["job1"]
+    ), f"All steps should output to a tmp directory: {[s.env['output'] for s in app.jobs['job1']]}"
+    assert all(isinstance(step.env["OUTPUT"], str) for step in app.jobs["job1"])
+    assert all(os.path.isdir(step.env["OUTPUT"]) for step in app.jobs["job1"]), "Each output should be a directory"  # type: ignore
+    assert (
+        app.jobs["job1"][0].env["OUTPUT"] != app.jobs["job1"][1].env["OUTPUT"]
+    ), "Every tmp value should be a different value"
 
 
 def test_resolve_tmp_file(tmpdir):
@@ -155,23 +165,25 @@ def test_resolve_tmp_file(tmpdir):
           job1:
             - name: downloader
               transform: download
-              output: ${{tmp.file}}
-              args:
-                  base_url: http://example.com/data
+              env:
+                BASE_URL: http://example.com/data
+                OUTPUT: ${{tmp.file}}
             - name: splitter
               transform: split
-              output: ${{tmp.file}}
-              args:
-                  foo: bar
+              env:
+                FOO: bar
+                OUTPUT: ${{tmp.file}}
         """
     )
     app = App.from_yaml(manifest)
 
     assert all(
-        step.output.startswith(data_path + "/tmp/") for step in app.jobs["job1"]
+        step.env["OUTPUT"].startswith(data_path + "/tmp/") for step in app.jobs["job1"]
     ), "All steps should output to a tmp directory"
-    assert all(os.path.isfile(step.output) for step in app.jobs["job1"]), "Each output should be a directory"
-    app.jobs["job1"][0].output != app.jobs["job1"][1].output, "Every tmp value should be a different value"
+    assert all(os.path.isfile(step.env["OUTPUT"]) for step in app.jobs["job1"]), "Each output should be a directory"
+    assert (
+        app.jobs["job1"][0].env["OUTPUT"] != app.jobs["job1"][1].env["OUTPUT"]
+    ), "Every tmp value should be a different value"
 
 
 def test_resolve_unknown_step():
@@ -183,14 +195,14 @@ def test_resolve_unknown_step():
           job1:
             - name: downloader
               transform: download
-              output: /data/output1
-              args:
-                base_url: http://example.com/data
+              env:
+                BASE_URL: http://example.com/data
+                OUTPUT: /data/output1
             - name: splitter
               transform: split
-              output: /data/output2
-              args:
-                foo: ${unknown.output}
+              env:
+                FOO: ${unknown.output}
+                OUTPUT: /data/output2
         """
     )
 
@@ -211,14 +223,14 @@ def test_resolve_unknown_variable():
           job1:
             - name: downloader
               transform: download
-              output: /data/output1
-              args:
-                base_url: http://example.com/data
+              env:
+                BASE_URL: http://example.com/data
+                OUTPUT: /data/output1
             - name: splitter
               transform: split
-              output: /data/output2
-              args:
-                foo: ${downloader.unknown}
+              env:
+                FOO: ${downloader.unknown}
+                OUTPUT: /data/output2
         """
     )
 
@@ -226,7 +238,7 @@ def test_resolve_unknown_variable():
         App.from_yaml(manifest)
     assert (
         str(exc_info.value)
-        == "Invalid placeholder `unknown` in ${downloader.unknown}. Valid keys are: `args`, `description`, `name`, `output`, `skip`, `transform`"
+        == "Invalid placeholder `unknown` in ${downloader.unknown}. Valid keys are: `description`, `env`, `name`, `skip`, `transform`"
     )
 
 
@@ -239,19 +251,19 @@ def test_resolve_variable_previous_output():
           job1:
             - name: downloader
               transform: download
-              output: /some/path
-              args:
-                base_url: http://example.com/data
+              env:
+                BASE_URL: http://example.com/data
+                OUTPUT: /some/path
             - name: splitter
               transform: split
-              output: /data/output
-              args:
-                foo: ${previous.output}
+              env:
+                FOO: ${previous.env.output}
+                OUTPUT: /data/output
         """
     )
     app = App.from_yaml(manifest)
 
-    assert app.jobs["job1"][1].args["foo"] == app.jobs["job1"][0].output
+    assert app.jobs["job1"][1].env["FOO"] == app.jobs["job1"][0].env["OUTPUT"]
 
 
 def test_resolve_variable_previous_output_no_previous_output():
@@ -263,14 +275,14 @@ def test_resolve_variable_previous_output_no_previous_output():
           job1:
             - name: downloader
               transform: download
-              output: /data/output1
-              args:
-                base_url: http://example.com/data
+              env:
+                BASE_URL: http://example.com/data
+                OUTPUT: /data/output1
             - name: splitter
               transform: split
-              output: /data/output2
-              args:
-                foo: ${previous.unknown}
+              env:
+                FOO: ${previous.unknown}
+                OUTPUT: /data/output2
         """
     )
 
@@ -278,7 +290,7 @@ def test_resolve_variable_previous_output_no_previous_output():
         App.from_yaml(manifest)
     assert str(exc_info.value) == (
         "Invalid placeholder `unknown` in ${previous.unknown}. "
-        "Valid keys are: `args`, `description`, `name`, `output`, `skip`, `transform`"
+        "Valid keys are: `description`, `env`, `name`, `skip`, `transform`"
     )
 
 
@@ -291,9 +303,9 @@ def test_resolve_variable_previous_output_first_step():
           job1:
             - name: splitter
               transform: split
-              output: /data/output
-              args:
-                foo: ${previous.output}
+              env:
+                FOO: ${previous.output}
+                OUTPUT: /data/output
         """
     )
 
@@ -312,21 +324,21 @@ def test_resolve_variable_previous_output_variable(tmpdir):
           job1:
             - name: downloader
               transform: download
-              output: $data/output
-              args:
-                base_url: http://example.com/data
+              env:
+                BASE_URL: http://example.com/data
+                OUTPUT: $data/output
             - name: splitter
               transform: split
-              output: /data/output
-              args:
-                foo: ${{previous.output}}
+              env:
+                FOO: ${{previous.env.output}}
+                OUTPUT: /data/output
         """
     )
 
     app = App.from_yaml(manifest)
 
-    assert app.jobs["job1"][1].args["foo"] == app.jobs["job1"][0].output
-    assert app.jobs["job1"][0].output == f"{data_path}/output"
+    assert app.jobs["job1"][1].env["FOO"] == app.jobs["job1"][0].env["OUTPUT"]
+    assert app.jobs["job1"][0].env["OUTPUT"] == f"{data_path}/output"
 
 
 def test_resolve_variable_with_literal_dollar_sign():
@@ -338,24 +350,24 @@ def test_resolve_variable_with_literal_dollar_sign():
           job1:
             - name: downloader
               transform: download
-              output: path/$$data
-              args:
-                base_url: http://example.com/$$data
+              env:
+                BASE_URL: http://example.com/$$data
+                OUTPUT: path/$$data
             - name: splitter
               transform: split
-              output: ${previous.output}
-              args:
-                foo: ${previous.args.base_url}
+              env:
+                FOO: ${previous.env.base_url}
+                OUTPUT: ${previous.env.output}
         """
     )
 
     app = App.from_yaml(manifest)
 
     steps = app.jobs["job1"]
-    assert steps[0].output == "path/$data"
-    assert steps[0].args["base_url"] == "http://example.com/$data"
-    assert steps[1].output == "path/$data"
-    assert steps[1].args["foo"] == "http://example.com/$data"
+    assert steps[0].env["OUTPUT"] == "path/$data"
+    assert steps[0].env["BASE_URL"] == "http://example.com/$data"
+    assert steps[1].env["OUTPUT"] == "path/$data"
+    assert steps[1].env["FOO"] == "http://example.com/$data"
 
 
 def test_run_app_chained_placeholders():
@@ -367,25 +379,25 @@ def test_run_app_chained_placeholders():
           job1:
             - name: downloader1
               transform: download
-              output: /tmp/data/d1
-              args:
-                base_url: http://example.com$data
+              env:
+                BASE_URL: http://example.com$data
+                OUTPUT: /tmp/data/d1
             - name: downloader2
               transform: download
-              output: /tmp/data/d2
-              args:
-                base_url: ${downloader1.args.base_url}
+              env:
+                BASE_URL: ${downloader1.env.base_url}
+                OUTPUT: /tmp/data/d2
             - name: downloader3
               transform: download
-              output: /tmp/data/d3
-              args:
-                base_url: ${downloader2.args.base_url}
+              env:
+                BASE_URL: ${downloader2.env.base_url}
+                OUTPUT: /tmp/data/d3
     """
     )
 
     app = App.from_yaml(manifest)
 
-    actual_base_urls = [step.args["base_url"] for step in app.jobs["job1"]]
+    actual_base_urls = [step.env["BASE_URL"] for step in app.jobs["job1"]]
     assert actual_base_urls == ["http://example.com/data"] * 3
 
 
@@ -398,14 +410,14 @@ def test_run_app_circular_placeholders():
           job1:
             - name: downloader1
               transform: download
-              output: ${downloader2.output}
-              args:
-                base_url: http://example.com$data
+              env:
+                BASE_URL: http://example.com$data
+                OUTPUT: ${downloader2.output}
             - name: downloader2
               transform: download
-              output: ${downloader1.output}
-              args:
-                base_url: http://example.com$data
+              env:
+                BASE_URL: http://example.com$data
+                OUTPUT: ${downloader1.output}
     """
     )
 
@@ -425,15 +437,15 @@ def test_run_app_named_placeholders_reference_other_job():
           job1:
             - name: downloader1
               transform: download
-              output: $data/job1
-              args:
-                base_url: http://example.com$data
+              env:
+                BASE_URL: http://example.com$data
+                OUTPUT: $data/job1
           job2:
             - name: downloader2
               transform: download
-              output: ${downloader1.output}/job2
-              args:
-                base_url: http://example.com$data
+              env:
+                BASE_URL: http://example.com$data
+                OUTPUT: ${downloader1.output}/job2
         """
     )
 

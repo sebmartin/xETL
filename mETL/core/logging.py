@@ -18,14 +18,30 @@ class LogContext(Enum):
 class Decorators:
     record_prefix: str
     header_prefix: str
+    footer_prefix: str
     header_suffix: str
 
 
 log_decorations = {
-    LogContext.NONE: Decorators(record_prefix="", header_prefix="", header_suffix=""),
-    LogContext.APP: Decorators(record_prefix="│", header_prefix="╭" + "─" * 2 + "╴", header_suffix=" ╶╴╴╶ ╶"),
-    LogContext.JOB: Decorators(record_prefix="║", header_prefix="╔" + "═" * 2 + "╸", header_suffix=" ═╴╴╶ ╶"),
-    LogContext.STEP: Decorators(record_prefix="┃", header_prefix="┏" + "━" * 2 + "╸", header_suffix=" ━╴╴╶ ╶"),
+    LogContext.NONE: Decorators(record_prefix="", header_prefix="", footer_prefix="", header_suffix=""),
+    LogContext.APP: Decorators(
+        header_prefix="╭" + "─" * 2 + "╴",
+        record_prefix="│",
+        footer_prefix="╰" + "─" * 2 + "╴",
+        header_suffix=" ╶╴╴╶ ╶",
+    ),
+    LogContext.JOB: Decorators(
+        header_prefix="╔" + "═" * 2 + "╸",
+        record_prefix="║",
+        footer_prefix="╚" + "═" * 2 + "╸",
+        header_suffix=" ═╴╴╶ ╶",
+    ),
+    LogContext.STEP: Decorators(
+        header_prefix="║┏" + "━" * 2 + "╸",
+        record_prefix="║┃",
+        footer_prefix="║┗" + "━" * 2 + "╸",
+        header_suffix=" ━╴╴╶ ╶",
+    ),
 }
 
 
@@ -42,6 +58,12 @@ class Color(Enum):
     GRAY = esc("90")
 
 
+class LogLineType(Enum):
+    HEADER = "header"
+    NORMAL = "normal"
+    FOOTER = "footer"
+
+
 def colored(text, color: Color):
     return f"{color.value}{text}{Color.END.value}" if sys.stdout.isatty() else text
 
@@ -51,21 +73,21 @@ class NestedFormatter(logging.Formatter):
         super().__init__(*args, **kwargs)
         self.context = context
         self.stack: list[tuple] = []
-        self.header = False
+        self.line_type = LogLineType.NORMAL
 
-    def push_context(self, context: LogContext, header: bool = False):
-        self.stack.append((self.context, self.header))
-        self.set_context(context, header)
+    def push_context(self, context: LogContext, line_type: LogLineType = LogLineType.NORMAL):
+        self.stack.append((self.context, self.line_type))
+        self.set_context(context, line_type)
 
     def pop_context(self):
         if self.stack:
             self.set_context(*self.stack.pop())
         else:
-            self.set_context(LogContext.NONE, False)
+            self.set_context(LogContext.NONE, LogLineType.NORMAL)
 
-    def set_context(self, context: LogContext, header: bool = False):
+    def set_context(self, context: LogContext, line_type: LogLineType = LogLineType.NORMAL):
         self.context = context
-        self.header = header
+        self.line_type = line_type
 
     def _formatted_date(self, record: logging.LogRecord):
         return f"{datetime.fromtimestamp(record.created).strftime('%Y-%m-%d %H:%M:%S')}.{record.msecs:03.0f}"
@@ -79,19 +101,22 @@ class NestedFormatter(logging.Formatter):
             case _:
                 message = record.msg
 
-        if self.header:
-            prefix = colored(log_decorations[self.context].header_prefix, Color.BLUE)
-            suffix = colored(log_decorations[self.context].header_suffix, Color.BLUE)
-            log_format = f"{prefix}{colored(message, Color.BRIGHT_WHITE)}{suffix}"
-        else:
-            prefix = colored(log_decorations[self.context].record_prefix, Color.BLUE)
-            if self.context in (LogContext.NONE, LogContext.APP):
-                prefix = f"{prefix} " if prefix else ""
-                log_format = f"{prefix}{message}"
-            else:
-                log_format = (
-                    f"{prefix}{colored(self._formatted_date(record), Color.GRAY)}{colored('┊', Color.BLUE)} {message}"
-                )
+        match self.line_type:
+            case LogLineType.HEADER:
+                prefix = colored(log_decorations[self.context].header_prefix, Color.BLUE)
+                suffix = colored(log_decorations[self.context].header_suffix, Color.BLUE)
+                log_format = f"{prefix}{colored(message, Color.BRIGHT_WHITE)}{suffix}"
+            case LogLineType.FOOTER:
+                prefix = colored(log_decorations[self.context].footer_prefix, Color.BLUE)
+                suffix = colored(log_decorations[self.context].header_suffix, Color.BLUE)
+                log_format = f"{prefix}{colored(message, Color.BRIGHT_WHITE)}{suffix}"
+            case LogLineType.NORMAL:
+                prefix = colored(log_decorations[self.context].record_prefix, Color.BLUE)
+                if self.context in (LogContext.NONE, LogContext.APP, LogContext.JOB):
+                    prefix = f"{prefix} " if prefix else ""
+                    log_format = f"{prefix}{message}"
+                else:
+                    log_format = f"{prefix}{colored(self._formatted_date(record), Color.GRAY)}{colored('┊', Color.BLUE)} {message}"
 
         return log_format
 
@@ -100,26 +125,38 @@ class NestedFormatter(logging.Formatter):
 def log_context(context: LogContext, header: str):
     root_logger = logging.getLogger()
 
-    def push_context(context: LogContext, header: bool = False):
+    def push_context(context: LogContext, line_type: LogLineType = LogLineType.NORMAL):
         for handler in root_logger.handlers:
             if isinstance(handler.formatter, NestedFormatter):
-                handler.formatter.push_context(context, header)
+                handler.formatter.push_context(context, line_type)
 
-    def set_context(context: LogContext, header: bool = False):
+    def set_context(context: LogContext, line_type: LogLineType = LogLineType.NORMAL):
         for handler in root_logger.handlers:
             if isinstance(handler.formatter, NestedFormatter):
-                handler.formatter.set_context(context, header)
+                handler.formatter.set_context(context, line_type)
 
     def pop_context():
         for handler in root_logger.handlers:
             if isinstance(handler.formatter, NestedFormatter):
                 handler.formatter.pop_context()
 
-    push_context(context, header=True)
+    push_context(context, line_type=LogLineType.HEADER)
     root_logger.info(header)
-    set_context(context, header=False)
-    yield
-    pop_context()
+    set_context(context, line_type=LogLineType.NORMAL)
+
+    tail_message = None
+
+    def set_tail_message(message):
+        nonlocal tail_message
+        tail_message = message
+
+    try:
+        yield set_tail_message
+    finally:
+        if tail_message:
+            set_context(context, line_type=LogLineType.FOOTER)
+            root_logger.info(tail_message)
+        pop_context()
 
 
 def configure_logging(root_logger):

@@ -3,12 +3,13 @@ import os
 import re
 import tempfile
 from collections import OrderedDict
-from typing import Any, Iterable
+from typing import Iterable
+from traitlets import Any
 
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 
-from metl.core.models.utils import load_yaml
+from metl.core.models.utils import conform_env_key, load_yaml
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +21,35 @@ class LoadAppManifestError(Exception):
 
 
 class App(BaseModel):
+    """
+    The app is the top level object that defines the structure of the pipeline. An app is composed of jobs,
+    which are composed of steps. Each step executes a transform with arguments that are defined in each step
+    and passed to the transform at runtime.
+    """
+
     name: str
-    data: str
-    jobs: dict[str, list["Step"]]
+    """A name for the app used in logging and other places to identify the app. This can be any string value."""
+
     description: str | None = None
+    """
+    An optional description of the app. This can be any string value. This is purely metadata and has no
+    functional impact on the app.
+    """
+
+    data: str
+    """The root directory where the app will store its data. If the directory does not exist, it will be created."""
+
+    vars: dict[str, ArgumentType] = {}  # TODO: implement and test
+    """
+    A dictionary of variables that can be referenced in job steps. This can be useful for declaring values
+    that are used in multiple steps such as database connection strings.
+    """
+
+    jobs: dict[str, list["Step"]]
+    """
+    A dictionary of jobs. Each job is a list of steps. Each step executes a transform with arguments that are
+    defined in each step and passed to the transform at runtime.
+    """
 
     @classmethod
     def from_file(cls, path: str) -> "App":
@@ -44,12 +70,45 @@ class App(BaseModel):
 
 
 class Step(BaseModel):
+    """
+    A step is an instruction for executing a transform. An app is composed of jobs, which are composed of
+    one or more steps. Each step defines the input and output parameters for executing a single transform.
+    """
+
     name: str | None = None
+    """An optional name for the step. This can be any string value."""
+
     description: str | None = None
+    """An optional description of the step. This can be any string value."""
+
     transform: str
-    args: dict[str, ArgumentType] = {}
-    output: str
+    """
+    The name of the transform to execute. The transformed needs to be discovered by the runner in order
+    to be referenced by name and be found. See the `metl.core.models.transform.discover_transforms` function
+    for more information on the transform discovery process.
+    """
+
+    env: dict[str, ArgumentType] = {}
+    """
+    Set of ENV variables that will be set when executing the transform. The keys in this dictionary must
+    match the names of the `env` keys defined (and described) in the transform's manifest.
+    """
+
     skip: bool = False
+    """
+    If `True`, the step will be skipped when the app is run. This can be useful for temporarily disabling
+    steps during development without removing them from the app. It's akin to commenting out the step
+    however the variable resolution will still occur (e.g. future steps can still reference this step's
+    values). # TODO: add a test to confirm this statement
+    """
+
+    @field_validator("env", mode="before")
+    @classmethod
+    def conform_env_keys(cls, value: Any):
+        # TODO: add a test for this
+        if not isinstance(value, dict):
+            return value
+        return {conform_env_key(key): value for key, value in value.items()}
 
 
 # Validation
@@ -68,10 +127,11 @@ def resolve_placeholders(app: App):
         os.close(fd)
         return path
 
-    def get_key_value(obj: object | dict, keys: list[str], match: str):
+    def get_key_value(obj: BaseModel | dict, keys: list[str], match: str):
         def get(obj, key):
+            key = key.lower()
             if isinstance(obj, dict):
-                return obj.get(key)
+                return obj.get(key, obj.get(key.upper()))
             return getattr(obj, key, None)
 
         if (value := get(obj, keys[0])) is None:
