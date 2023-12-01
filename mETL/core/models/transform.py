@@ -5,7 +5,7 @@ import shlex
 import subprocess
 from typing import Any, Type
 from pydantic import BaseModel, ValidationError, field_validator, model_validator
-from metl.core.models.app import Step
+from metl.core.models.step import Step
 
 from metl.core.models.utils import conform_env_key, conform_key, load_yaml
 
@@ -32,16 +32,22 @@ class EnvType(Enum):
 
 
 class InputDetails(BaseModel):
-    # TODO: finish implementing this and add tests
     description: str | None = None
     required: bool = True
-    type: Type[str | int | float | bool] = str
+    default: Any | None = None
+    type: Type[str | int | float | bool | Any] = Any
 
     @model_validator(mode="before")
     @classmethod
     def set_defaults(cls, data: Any) -> Any:
         if isinstance(data, str):
             return {"description": data}
+        if isinstance(data, dict):
+            data = {conform_key(key): value for key, value in data.items()}
+            if "optional" in data:
+                if "required" in data:
+                    raise ValueError("Cannot specify both `required` and `optional`")
+                data["required"] = not data.pop("optional")
         return data
 
     @field_validator("type", mode="before")
@@ -61,9 +67,6 @@ class InputDetails(BaseModel):
             if type_ := mapping.get(value.lower()):
                 return type_
         raise ValueError(f"Invalid input type: {value}")
-
-
-blah = InputDetails(description="The input to the transform", required=True, type=bool)
 
 
 class Transform(BaseModel):
@@ -104,7 +107,7 @@ class Transform(BaseModel):
         - `bash`: The run command is executed as a bash command.
     """
 
-    env: dict[str, str] = {}
+    env: dict[str, InputDetails] = {}
     """
     A dictionary of environment variable inputs for the transform's run command. The keys are the names of
     the ENV variables and the values are their text descriptions. The values will be provided by the job step
@@ -183,10 +186,26 @@ class Transform(BaseModel):
 
     @field_validator("env", mode="before")
     @classmethod
-    def conform_env_keys(cls, data: Any) -> dict[str, InputDetails]:
+    def conform_env(cls, data: Any) -> dict[str, InputDetails]:
         # TODO: support a list as an input for "env" and assert on the type when
         #   getting inputs from the job step
-        return {conform_env_key(key): value for key, value in data.items()}
+        def conform_value(value: Any) -> InputDetails:
+            if isinstance(value, str):
+                return InputDetails(description=value)
+            if isinstance(value, dict):
+                return InputDetails(**value)
+            raise ValueError(f"Invalid input value: {value}")
+
+        if isinstance(data, list):
+            data = {key: "N/A" for key in data}
+        return {conform_env_key(key): conform_value(value) for key, value in data.items()}
+
+    @field_validator("env_type", mode="before")
+    @classmethod
+    def convert_env_type_lowercase(cls, data: Any) -> Any:
+        if not isinstance(data, str):
+            return data
+        return data.lower()
 
     def execute(self, step: Step, dryrun: bool = False) -> int:
         """
@@ -209,10 +228,8 @@ class Transform(BaseModel):
             logger.info(f"  env: {', '.join(f'{k}={v}' for k,v in inputs_env.items())}")
             return 0
         else:
-            # TODO: feature: support more than a string as the output (e.g. direct to postgres?, etc.)
-            # if not os.path.exists(step.output):
-            #     os.makedirs(step.output)
-
+            # TODO check the type for each env value in the transform definition
+            #   and raise if the value is invalid
             env = dict(os.environ)
             env.update(inputs_env)
             process = subprocess.Popen(
@@ -267,20 +284,12 @@ def discover_transforms(transforms_repo_path: str) -> dict[str, Transform]:
         if "/tests/" in path and path.split("/tests/")[0] in transforms_paths:
             continue  # ignore manifests in tests directories
 
-        load_transform_at_path(path, transforms)
+        try:
+            transform = Transform.from_file(f"{path}/manifest.yml")
+            transforms[transform.name] = transform
+        except ValidationError as e:
+            logger.warning(f"Skipping transform due to validation error: {e}")
+        except LoadTransformManifestError as e:
+            logger.warning(f"Skipping transform due to error: {e}")
+
     return transforms
-
-
-def load_transform_at_path(path: str, transforms: dict[str, Transform]):
-    try:
-        transform = Transform.from_file(f"{path}/manifest.yml")
-    except ValidationError as e:
-        # TODO: test this
-        logger.warning(f"Skipping transform due to validation error: {e}")
-        return
-    except LoadTransformManifestError as e:
-        # TODO: test this
-        logger.warning(f"Skipping transform due to error: {e}")
-        return
-
-    transforms[transform.name] = transform

@@ -20,6 +20,25 @@ def fake_abspath(path):
 # TODO: add tests for steps?
 
 
+@pytest.mark.parametrize("key", ["BASE_URL", "base-url", "Base_Url", "base_url"])
+def test_conform_env_keys(key):
+    manifest = dedent(
+        f"""
+        name: Single composed job manifest
+        data: /data
+        jobs:
+          job1:
+            - transform: download
+              env:
+                {key}: http://example.com/data
+        """
+    )
+    app = App.from_yaml(manifest)
+
+    assert "BASE_URL" in app.jobs["job1"][0].env
+    assert app.jobs["job1"][0].env["BASE_URL"] == "http://example.com/data"
+
+
 @pytest.mark.parametrize(
     "placeholder, resolved",
     [
@@ -178,9 +197,11 @@ def test_resolve_tmp_file(tmpdir):
     app = App.from_yaml(manifest)
 
     assert all(
-        step.env["OUTPUT"].startswith(data_path + "/tmp/") for step in app.jobs["job1"]
+        str(step.env["OUTPUT"]).startswith(data_path + "/tmp/") for step in app.jobs["job1"]
     ), "All steps should output to a tmp directory"
-    assert all(os.path.isfile(step.env["OUTPUT"]) for step in app.jobs["job1"]), "Each output should be a directory"
+    assert all(
+        os.path.isfile(str(step.env["OUTPUT"])) for step in app.jobs["job1"]
+    ), "Each output should be a directory"
     assert (
         app.jobs["job1"][0].env["OUTPUT"] != app.jobs["job1"][1].env["OUTPUT"]
     ), "Every tmp value should be a different value"

@@ -6,7 +6,8 @@ from pprint import pprint
 import yaml
 
 from metl.core.logging import LogContext, log_context
-from metl.core.models.app import App, Step
+from metl.core.models.app import App
+from metl.core.models.step import Step
 from metl.core.models.transform import Transform, TransformFailure, discover_transforms
 
 TRANSFORMS_REPO_PATH = os.path.abspath(os.path.dirname(__file__) + "/../transforms")

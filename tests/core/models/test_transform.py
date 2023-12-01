@@ -2,13 +2,16 @@ from distutils.dir_util import copy_tree
 import os
 import re
 from textwrap import dedent
+from typing import Any
 
 import mock
 from mock import call
+from pydantic import ValidationError
 import pytest
-from metl.core.models.app import Step
+import yaml
+from metl.core.models.step import Step
 
-from metl.core.models.transform import EnvType, Transform, discover_transforms
+from metl.core.models.transform import EnvType, InputDetails, Transform, discover_transforms
 
 
 def transform_file(transform_yaml: str, tmpdir):
@@ -26,9 +29,9 @@ def simple_transform_manifest_yml():
         type: transform
         env-type: python
         env:
-          foo: bar
-          option-with-hyphens: value
-          output: /tmp/data/
+          foo: something
+          option-with-hyphens: something else
+          output: the result of the transform
         run-command: python run.py
         test-command: py.test
         """
@@ -99,9 +102,8 @@ class TestDiscoverTransforms:
 
         assert sorted(transforms.keys()) == sorted(["splitter", "download", "parser"])
 
-    @mock.patch("metl.core.models.transform.load_transform_at_path")
     def test_discover_transforms_ignore_test_dirs(
-        self, load_transform_at_path, transforms_fixtures_path, simple_transform_manifest_yml, tmpdir
+        self, transforms_fixtures_path, simple_transform_manifest_yml, tmpdir
     ):
         repo_dir = tmpdir.mkdir("manifests")
         tests_dir = repo_dir.mkdir("transforms").mkdir("parser").mkdir("tests")
@@ -113,27 +115,34 @@ class TestDiscoverTransforms:
             with open(os.path.join(str(path), "manifest.yml"), "w") as fd:
                 fd.write(simple_transform_manifest_yml)
 
-        discover_transforms(repo_dir)
+        transforms = discover_transforms(repo_dir)
 
-        loaded_paths = [c[0][0] for c in load_transform_at_path.call_args_list]
-        assert tests_dir not in loaded_paths, 'the "tests" directory was not skipped'
-        assert nested_tests_dir not in loaded_paths, 'the nested "tests" directory was not skipped'
+        def strip_tmpdir(path):
+            return str(path).replace(str(tmpdir), "")
 
-    def test_discover_transforms_ignore_invalid_yaml_manifest(self, transforms_fixtures_path, tmpdir):
+        discovered_paths = [strip_tmpdir(t.path) for t in transforms.values()]
+
+        assert strip_tmpdir(tests_dir) not in discovered_paths, 'the "tests" directory was not skipped'
+        assert strip_tmpdir(nested_tests_dir) not in discovered_paths, 'the nested "tests" directory was not skipped'
+        assert len(discovered_paths) == 3, "there should be 3 discovered transforms"
+
+    def test_discover_transforms_ignore_invalid_yaml_manifest(self, transforms_fixtures_path, tmpdir, caplog):
         repo_dir = str(tmpdir.mkdir("transforms"))
         copy_tree(transforms_fixtures_path, repo_dir)
 
-        os.mkdir(os.path.join(repo_dir, "invalid-yaml-transform"))
-        with open(os.path.join(repo_dir, "invalid-yaml-transform", "manifest.yml"), "w") as fd:
+        manifest_path = os.path.join(repo_dir, "invalid-yaml-transform", "manifest.yml")
+        os.mkdir(os.path.dirname(manifest_path))
+        with open(manifest_path, "w") as fd:
             fd.write("not really a manifest")
 
         transforms = discover_transforms(repo_dir)
 
+        assert f"Skipping transform due to error: Invalid app manifest at {manifest_path}" in caplog.text
         assert sorted(transforms.keys()) == sorted(["splitter", "download", "parser"])
 
     @pytest.mark.parametrize("required_key", ["name", "run-command"])
     def test_discover_transforms_ignore_missing_required_manifest_field(
-        self, required_key, transforms_fixtures_path, tmpdir
+        self, required_key, transforms_fixtures_path, tmpdir, caplog
     ):
         repo_dir = str(tmpdir.mkdir("transforms"))
         copy_tree(transforms_fixtures_path, repo_dir)
@@ -157,6 +166,7 @@ class TestDiscoverTransforms:
 
         transforms = discover_transforms(repo_dir)
 
+        assert "Skipping transform due to validation error" in caplog.text
         assert sorted(transforms.keys()) == ["download", "parser", "splitter"]
 
 
@@ -168,12 +178,123 @@ class TestDeserialization:
         assert transform.path == os.path.dirname(simple_transform_manifest_path)
         assert transform.env_type == EnvType.PYTHON
         assert transform.env == {
-            "FOO": "bar",
-            "OPTION_WITH_HYPHENS": "value",
-            "OUTPUT": "/tmp/data/",
+            "FOO": InputDetails(description="something"),
+            "OPTION_WITH_HYPHENS": InputDetails(description="something else"),
+            "OUTPUT": InputDetails(description="the result of the transform"),
         }, "The env variable names should have been transformed to uppercase and hyphens replaced with underscores"
         assert transform.run_command == "python run.py"
         assert transform.test_command == "py.test"
+
+    def test_transform_env_all_defaults(self):
+        manifest = dedent(
+            """
+            name: simple-transform
+            type: transform
+            env_type: python
+            path: /tmp
+            env:
+              - foo
+              - bar
+            run-command: python run.py
+            """
+        )
+        transform = Transform(**yaml.load(manifest, yaml.FullLoader))
+
+        assert transform.env == {
+            "FOO": InputDetails(description="N/A", required=True, default=None),
+            "BAR": InputDetails(description="N/A", required=True, default=None),
+        }, "The env variable names should have been transformed to InputDetails with defaults"
+
+    def test_transform_env_just_descriptions(self):
+        manifest = dedent(
+            """
+            name: simple-transform
+            type: transform
+            env_type: python
+            path: /tmp
+            env:
+              foo: foo description
+              bar: bar description
+            run-command: python run.py
+            """
+        )
+        transform = Transform(**yaml.load(manifest, yaml.FullLoader))
+
+        assert transform.env == {
+            "FOO": InputDetails(description="foo description"),
+            "BAR": InputDetails(description="bar description"),
+        }, "The env variable names should have been transformed to InputDetails with defaults"
+
+    def test_transform_env_all_explicit(self):
+        manifest = dedent(
+            """
+            name: simple-transform
+            type: transform
+            env_type: python
+            path: /tmp
+            env:
+              foo:
+                description: foo description
+                required: false
+                default: booya
+                type: string
+
+              bar:
+                description: bar description
+                required: true
+                type: boolean
+            run-command: python run.py
+            """
+        )
+        transform = Transform(**yaml.load(manifest, yaml.FullLoader))
+
+        assert transform.env == {
+            "FOO": InputDetails(description="foo description", required=False, default="booya", type=str),
+            "BAR": InputDetails(description="bar description", required=True, default=None, type=bool),
+        }, "The env variable names should have been transformed to InputDetails with defaults"
+
+    def test_transform_env_optional(self):
+        manifest = dedent(
+            """
+            name: simple-transform
+            type: transform
+            env_type: python
+            path: /tmp
+            env:
+              foo:
+                description: foo description
+                optional: true
+              bar:
+                description: bar description
+                optional: false
+            run-command: python run.py
+            """
+        )
+        transform = Transform(**yaml.load(manifest, yaml.FullLoader))
+
+        assert transform.env == {
+            "FOO": InputDetails(description="foo description", required=False),
+            "BAR": InputDetails(description="bar description", required=True),
+        }, "The env variable names should have been transformed to InputDetails with defaults"
+
+    def test_transform_env_specify_both_optional_and_required(self):
+        manifest = dedent(
+            """
+            name: simple-transform
+            type: transform
+            env_type: python
+            path: /tmp
+            env:
+              foo:
+                description: foo description
+                optional: true
+                required: true
+            run-command: python run.py
+            """
+        )
+        with pytest.raises(ValidationError) as exc:
+            Transform(**yaml.load(manifest, yaml.FullLoader))
+        assert "Cannot specify both `required` and `optional`" in str(exc.value)
 
 
 class TestExecuteTransform:

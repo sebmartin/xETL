@@ -6,7 +6,7 @@ import mock
 import yaml
 
 from metl.core import runner
-from metl.core.models.app import Step
+from metl.core.models.step import Step
 from metl.core.models.transform import Transform, TransformFailure
 
 
