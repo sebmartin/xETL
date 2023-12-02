@@ -16,13 +16,18 @@ class Step(BaseModel):
     """An optional name for the step. This can be any string value."""
 
     description: str | None = None
-    """An optional description of the step. This can be any string value."""
+    """
+    An optional description of the step. This can be any string value. This is purely metadata and has no
+    functional impact on the app.
+    """
 
     transform: str
     """
-    The name of the transform to execute. The transformed needs to be discovered by the runner in order
-    to be referenced by name and be found. See the `metl.core.models.transform.discover_transforms` function
-    for more information on the transform discovery process.
+    The name of the transform to execute. The transform needs to be discovered by the runner in order
+    to be referenced by name and be found. The name matching is case insensitive.
+
+    See the `metl.core.models.transform.discover_transforms` function for more information on the transform
+    discovery process.
     """
 
     env: dict[str, ArgumentType] = {}
@@ -33,11 +38,11 @@ class Step(BaseModel):
 
     skip: bool = False
     """
-    If `True`, the step will be skipped when the app is run. This can be useful for temporarily disabling
+    If `True`, the step will be skipped when running the app. This can be useful for temporarily disabling
     steps during development without removing them from the app. It's akin to commenting out the step
     however the variable resolution will still occur (e.g. future steps can still reference this step's
-    values). # TODO: add a test to confirm this statement
-    """
+    values).
+    """  # TODO: this has no tests in test_runner, only skip_to=
 
     @field_validator("env", mode="before")
     @classmethod

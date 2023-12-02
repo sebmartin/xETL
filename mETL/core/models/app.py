@@ -21,7 +21,7 @@ class LoadAppManifestError(Exception):
 
 class App(BaseModel):
     """
-    The app is the top level object that defines the structure of the pipeline. An app is composed of jobs,
+    The app is the top level model that defines the structure of the pipeline. An app is composed of jobs,
     which are composed of steps. Each step executes a transform with arguments that are defined in each step
     and passed to the transform at runtime.
     """
@@ -36,18 +36,35 @@ class App(BaseModel):
     """
 
     data: str
-    """The root directory where the app will store its data. If the directory does not exist, it will be created."""
-
-    vars: dict[str, ArgumentType] = {}  # TODO: implement and test -- rename to env?
     """
-    A dictionary of variables that can be referenced in job steps. This can be useful for declaring values
-    that are used in multiple steps such as database connection strings.
+    The root directory where the app will store its data. If the directory does not exist, it will be created.
+    This value can be referenced in steps using the `$data` placeholder.
+
+    e.g.
+    ```
+        jobs:
+          some-job:
+            - transform: my-transform
+              env:
+                INPUT: $data/input.csv
+                OUTPUT: $data/output.csv
+    ```
+    """
+
+    env: dict[str, ArgumentType] = {}  # TODO: implement and test
+    """
+    A dictionary of environment variables that can be referenced in job steps. This can be useful for
+    declaring values that are used in multiple steps such as database connection strings.
+
+    These values will be available as env variables when running the transform for each step in the app
+    without having to be redefined in each step's env. However, the step's env always takes precedence so
+    it's possible to override the app's env value by specifying a different value in a step's env.
     """
 
     jobs: dict[str, list["Step"]]
     """
-    A dictionary of jobs. Each job is a list of steps. Each step executes a transform with arguments that are
-    defined in each step and passed to the transform at runtime.
+    A dictionary of jobs. Each job is a list of steps. Each step executes a transform with env variables
+    that are defined in each step and passed to the transform at runtime.
     """
 
     @classmethod

@@ -17,9 +17,6 @@ def fake_abspath(path):
     return f"/absolute/path/to/{path}"
 
 
-# TODO: add tests for steps?
-
-
 @pytest.mark.parametrize("key", ["BASE_URL", "base-url", "Base_Url", "base_url"])
 def test_conform_env_keys(key):
     manifest = dedent(
@@ -47,7 +44,7 @@ def test_conform_env_keys(key):
         ("${downloader.env.output}$downloader.name", "/some/path$downloader.name"),
         ("${downloader.env.output}/${previous.env.method}", "/some/path/GET"),
         ("${downloader.env.output}/$$${previous.env.method}", "/some/path/$GET"),
-        ("$$$${downloader.output}", "$${downloader.output}"),
+        ("$$$${downloader.env.output}", "$${downloader.env.output}"),
         ("$downloader.env.base_url", "$downloader.env.base_url"),
         ("[${downloader.env.base_url}]", "[http://example.com/data]"),
         ("[$data] *${downloader.transform}* $$${downloader.env.method}$", "[/data] *download* $GET$"),
@@ -325,7 +322,7 @@ def test_resolve_variable_previous_output_first_step():
             - name: splitter
               transform: split
               env:
-                FOO: ${previous.output}
+                FOO: ${previous.env.output}
                 OUTPUT: /data/output
         """
     )
@@ -433,19 +430,20 @@ def test_run_app_circular_placeholders():
               transform: download
               env:
                 BASE_URL: http://example.com$data
-                OUTPUT: ${downloader2.output}
+                OUTPUT: ${downloader2.env.output}
             - name: downloader2
               transform: download
               env:
                 BASE_URL: http://example.com$data
-                OUTPUT: ${downloader1.output}
+                OUTPUT: ${downloader1.env.output}
     """
     )
 
     with pytest.raises(Exception) as exc:
         App.from_yaml(manifest)
     assert (
-        str(exc.value) == "Invalid placeholder `downloader2` in ${downloader2.output}. There are no steps to reference."
+        str(exc.value)
+        == "Invalid placeholder `downloader2` in ${downloader2.env.output}. There are no steps to reference."
     )
 
 
@@ -466,12 +464,13 @@ def test_run_app_named_placeholders_reference_other_job():
               transform: download
               env:
                 BASE_URL: http://example.com$data
-                OUTPUT: ${downloader1.output}/job2
+                OUTPUT: ${downloader1.env.output}/job2
         """
     )
 
     with pytest.raises(Exception) as exc:
         App.from_yaml(manifest)
     assert (
-        str(exc.value) == "Invalid placeholder `downloader1` in ${downloader1.output}. There are no steps to reference."
+        str(exc.value)
+        == "Invalid placeholder `downloader1` in ${downloader1.env.output}. There are no steps to reference."
     )

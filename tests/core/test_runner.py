@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 from textwrap import dedent
@@ -7,11 +8,18 @@ import yaml
 
 from metl.core import runner
 from metl.core.models.step import Step
-from metl.core.models.transform import Transform, TransformFailure
+from metl.core.models.transform import Transform, TransformFailure, UnknownTransformError
 
 
 def parse_yaml(yaml_str):
     return yaml.load(yaml_str, yaml.FullLoader)
+
+
+def app_file(app_yaml: str, tmpdir):
+    path = os.path.join(tmpdir, "app.yml")
+    with open(path, "w") as fd:
+        fd.write(app_yaml)
+    return path
 
 
 def strip_dates(string):
@@ -20,14 +28,14 @@ def strip_dates(string):
 
 @mock.patch("subprocess.run", mock.Mock())
 class TestAppManifest(object):
-    @mock.patch("metl.core.runner.execute_transform", return_value=0)
-    def test_run_app_simple_job(self, execute_transform, app_manifest_simple_path, transforms_fixtures_path):
+    @mock.patch("metl.core.runner.execute_job_step", return_value=0)
+    def test_run_app_simple_job(self, execute_job_step, app_manifest_simple_path, transforms_fixtures_path):
         runner.run_app(app_manifest_simple_path, transforms_repo_path=transforms_fixtures_path)
 
-        assert execute_transform.call_count == 1, "`execute_transform` was called an unexpected number of times"
-        actual_steps = [call[1].get("step") or call[0][0] for call in execute_transform.call_args_list]
-        actual_transforms = [call[1].get("transforms") or call[0][1] for call in execute_transform.call_args_list]
-        actual_dryruns = [call[1].get("dryrun") or call[0][2] for call in execute_transform.call_args_list]
+        assert execute_job_step.call_count == 1, "`execute_job_step` was called an unexpected number of times"
+        actual_steps = [call[1].get("step") or call[0][0] for call in execute_job_step.call_args_list]
+        actual_transforms = [call[1].get("transforms") or call[0][1] for call in execute_job_step.call_args_list]
+        actual_dryruns = [call[1].get("dryrun") or call[0][2] for call in execute_job_step.call_args_list]
 
         assert actual_steps == [
             Step(
@@ -42,7 +50,7 @@ class TestAppManifest(object):
         actual_transform = actual_transforms[0]
         assert all(
             actual_transform == p for p in actual_transforms
-        ), "Each call to `execute_transform` should have passed the same transforms dict"
+        ), "Each call to `execute_job_step` should have passed the same transforms dict"
         assert sorted(actual_transform.keys()) == ["download", "parser", "splitter"]
         assert all(isinstance(t, Transform) for t in actual_transform.values())
         assert all(dryrun is False for dryrun in actual_dryruns)
@@ -73,7 +81,7 @@ class TestAppManifest(object):
         assert sorted(actual_transform.keys()) == ["download", "parser", "splitter"]
         assert all(
             actual_transform == p for p in actual_transforms
-        ), "Each call to `execute_transform` should have passed the same transforms dict"
+        ), "Each call to `execute_job_steps` should have passed the same transforms dict"
 
         # check the dryrun argument for each call
         actual_dryruns = [call[1].get("dryrun") or call[0][3] for call in execute_job_steps.call_args_list]
@@ -108,17 +116,28 @@ class TestAppManifest(object):
         assert sorted(actual_transform.keys()) == ["download", "parser", "splitter"]
         assert all(
             actual_transform == p for p in actual_transforms
-        ), "Each call to `execute_transform` should have passed the same transforms dict"
+        ), "Each call to `execute_job_steps` should have passed the same transforms dict"
 
-    @mock.patch("metl.core.runner.execute_transform", return_value=127)
+    @mock.patch("metl.core.runner.execute_job_step", return_value=127)
     def test_run_stops_if_step_fails(
-        self, execute_transform, app_manifest_single_multiple_step_job_path, transforms_fixtures_path, tmpdir
+        self, execute_job_step, app_manifest_single_multiple_step_job_path, transforms_fixtures_path, tmpdir
     ):
         with pytest.raises(TransformFailure) as excinfo:
             runner.run_app(app_manifest_single_multiple_step_job_path, transforms_repo_path=transforms_fixtures_path)
 
-        assert execute_transform.call_count == 1, "execute_transform() should have only been called once"
+        assert execute_job_step.call_count == 1, "execute_job_step() should have only been called once"
         assert excinfo.value.returncode == 127, "The exception should contain the return code of the failed transform"
+
+    @mock.patch("metl.core.models.transform.Transform.execute", return_value=127)
+    def test_run_app_with_unknown_transform(
+        self, transform_execute, app_manifest_simple, transforms_fixtures_path, tmpdir
+    ):
+        manifest = app_manifest_simple.replace("transform: download", "transform: unknown")
+        with pytest.raises(UnknownTransformError) as excinfo:
+            runner.run_app(app_file(manifest, tmpdir), transforms_repo_path=transforms_fixtures_path)
+
+        assert str(excinfo.value) == "Unknown transform `unknown`, should be one of: ['download', 'parser', 'splitter']"
+        transform_execute.assert_not_called()
 
     @pytest.mark.parametrize(
         "skip_to, expected_steps",
@@ -148,6 +167,32 @@ class TestAppManifest(object):
         actual_steps = [call[1].get("steps") or call[0][1] for call in execute_job_steps.call_args_list]
         actual_steps_names = [[step.name for step in steps] for steps in actual_steps]
         assert actual_steps_names == expected_steps
+
+    @mock.patch("metl.core.runner.execute_job_step", return_value=0)
+    def test_run_app_skipped_steps_still_resolve(self, execute_job_step, tmpdir):
+        app_manifest = dedent(
+            """
+            name: Multiple job manifest
+            data: /data
+            jobs:
+              download:
+                - name: skipped
+                  transform: download
+                  env:
+                    BASE_URL: http://example.com/data1
+                    THROTTLE: 1000
+                    OUTPUT: /tmp/data1/source
+                - name: references-skipped
+                  transform: splitter
+                  env:
+                    SOURCE: ${previous.env.OUTPUT}
+                    OUTPUT: /tmp/data1/splits
+            """
+        )
+        runner.run_app(app_file(app_manifest, tmpdir), skip_to="download.references-skipped")
+        assert execute_job_step.call_count == 1, "execute_job_step() should have only been called once"
+        executed_step = execute_job_step.call_args[0][0]
+        assert executed_step.env["SOURCE"] == "/tmp/data1/source"
 
 
 class TestRunnerEndToEnd:

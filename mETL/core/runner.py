@@ -8,7 +8,7 @@ import yaml
 from metl.core.logging import LogContext, log_context
 from metl.core.models.app import App
 from metl.core.models.step import Step
-from metl.core.models.transform import Transform, TransformFailure, discover_transforms
+from metl.core.models.transform import Transform, TransformFailure, UnknownTransformError, discover_transforms
 
 TRANSFORMS_REPO_PATH = os.path.abspath(os.path.dirname(__file__) + "/../transforms")
 
@@ -66,16 +66,17 @@ def execute_job_steps(job_name: str, steps: list[Step], transforms: dict[str, Tr
             if step.skip:
                 logger.warning(f"Skipping step `{step.name or f'#{i + 1}'}` from job '{job_name}'")
                 continue
-            returncode = execute_transform(step, transforms, dryrun)
+            returncode = execute_job_step(step, transforms, dryrun)
             tail(f"Return code: {returncode}")
 
         if returncode != 0:
             raise TransformFailure(returncode=returncode)
 
 
-def execute_transform(step: Step, transforms: dict[str, Transform], dryrun) -> int:
+def execute_job_step(step: Step, transforms: dict[str, Transform], dryrun) -> int:
     name = step.transform
 
-    # TODO: add test for this this --v
-    assert name in transforms, "Unknown transform: {}, should be one of: {}".format(name, set(transforms.keys()))
-    return transforms[name].execute(step, dryrun)
+    if transform := transforms.get(name):
+        return transform.execute(step, dryrun)
+    else:
+        raise UnknownTransformError(f"Unknown transform `{name}`, should be one of: {sorted(transforms.keys())}")

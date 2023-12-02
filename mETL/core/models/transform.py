@@ -16,6 +16,10 @@ class LoadTransformManifestError(Exception):
     pass
 
 
+class UnknownTransformError(Exception):
+    pass
+
+
 class TransformFailure(Exception):
     def __init__(self, returncode: int) -> None:
         super().__init__()
@@ -61,6 +65,7 @@ class InputDetails(BaseModel):
                 "int": int,
                 "integer": int,
                 "float": float,
+                "decimal": float,
                 "bool": bool,
                 "boolean": bool,
             }
@@ -71,9 +76,9 @@ class InputDetails(BaseModel):
 
 class Transform(BaseModel):
     """
-    A transform is a single unit of work that can be run in a pipeline. You can think of a transform as a
-    mini-application that takes some input, does some work, and produces some output. The inputs are variable
-    which makes transforms re-usable in different contexts.
+    A transform is a single unit of work that can be executed in an app. You can think of a transform as a
+    mini-application that accepts inputs in the form of ENV variables, does some work, and produces some
+    output. These inputs are variable which makes transforms re-usable in different contexts.
     """
 
     name: str
@@ -84,7 +89,7 @@ class Transform(BaseModel):
         - alphanumeric characters
         - underscores
         - dashes
-    This not (yet) enforced but is good practice to avoid issues with matching jobs to their transforms.
+    This is not (yet) enforced but is good practice to avoid issues with matching jobs to their transforms.
     """
 
     description: str | None = None
@@ -102,57 +107,77 @@ class Transform(BaseModel):
     env_type: EnvType
     """
     The type of environment that the transform will run in. This determines how the run command is executed
-    and can be currently be one of the following:
+    and can currently accept one of the following values:
         - `python`: The run command is executed as a python script.
         - `bash`: The run command is executed as a bash command.
     """
 
     env: dict[str, InputDetails] = {}
     """
-    A dictionary of environment variable inputs for the transform's run command. The keys are the names of
-    the ENV variables and the values are their text descriptions. The values will be provided by the job step
-    that executes the transform. The descriptions are for documentation purposes only and serve no functional
-    purpose.
-    """
-    # TODO: specify basic type annotations for each
+    A dictionary of environment variable inputs for the transform's run command. This instructs the runtime
+    engine which environment variables to pass to the transform when executing it. When the transform is
+    executed, the runtime engine will pass the values of these environment variables (provided by the job
+    step) to the transform as environment variables. The transform can then use these values to control its
+    behaviour.
 
-    output: str | None = None
-    """
-    The transform's output. The value of this property is a text description of what the transform expects
-    to receive as the value for its output.
+    In its simplest form, the keys are the names of the ENV variables and the values are a text description
+    for each variable. The descriptions are purely metadata and have no functional impact on the transform.
 
-    The output value is an opaque string that is specified by the Step to control where the
-    output of the transform will be stored. It can also be referenced by future steps to use as their
-    inputs.
+    e.g.
+    ```
+        env:
+            MY_INPUT: A value that is use as the input for the transform
+            MY_OUTPUT: A path where the transform will save its output
+    ```
 
-    For example,
-        - if the transform is a python script that outputs a CSV file, this value could be the path
-          to the CSV file
-        - if a transform produces multiple files, this can be a parent directory where the files are stored
-        - if the output is saved to a database, this could be a connection string to that database
+    It's also possible to specify additional details for each input. The following details can be specified:
+        - `description`: A text description of the input. This is purely metadata and has no functional
+            impact on the transform.
+        - `required`: A boolean value indicating whether the input is required. If `True`, the runtime engine
+            will raise an error if the input is not provided by the job step. If `False`, the runtime engine
+            will not raise an error if the input is not provided by the job step and the ENV variable will not
+            be set when executing the transform.
+        - `optional`: A boolean value indicating whether the input is optional. This is just a convenience
+            alias for `required` and is mutually exclusive with `required`.
+        - `default`: The default value to use for the input if it is not provided by the job step. This value
+            is only used if the input is not required and is not provided by the job step. An exception is
+            raised if a default value is specified for a required input.
+        - `type`: The data type of the input. This is used to validate the value of the input provided by the job
+            step (at runtime). If the value provided by the job step is not of the specified type, an exception
+            is raised. The following types are supported:
+                - `string`: A string value (also accepts `str`)
+                - `integer`: An integer value (also accepts `int`)
+                - `decimal`: A floating point value (also accepts `float`)
+                - `boolean`: A boolean value (also accepts `bool`)
 
-    The output value is passed to the transform at runtime as an environment variable named `OUTPUT`.
-    """
-    # TODO: what is an "output" parameter on the transform? Is it the description of what the output should be?
-    # TODO: would be nice to add typing information
+            e.g.
+            ```
+                env:
+                    MY_INPUT:
+                        description: A value that is use as the input for the transform
+                        required: true
+                        type: string
+                    MY_OUTPUT:
+                        description: A path where the transform will save its output
+                        required: true
+                        type: string
+            ```
+    """  # TODO: implement and test
 
     run_command: str
     """
-    The command to execute when running the transform. The command is executed in the transform's directory
-    and is provided with the inputs and outputs as environment variables. The command depends on the `env_type`
+    The command to execute when running the transform. The command is executed in with the "working directory"
+    set to the value in the `path` property (typically the directory containing the transform's manifest.yml file)
+    and executes with the ENV variables set (see the `env` property). The command depends on the `env_type`
     which has some impact on the environment in which the command is executed.
 
-    The inputs and outputs can be accessed via environment variables. Each input and output name is converted
-    to a naming convention that is compatible with environment variables. The naming convention is as follows:
+    The inputs are accessed via environment variables. Each input name is converted to a naming convention that
+    is compatible with environment variables. The naming convention is as follows:
         - all uppercase
         - all dashes replaced with underscores
 
-    In addition to this, in order to avoid naming conflicts between inputs and outputs, the environment variable
-    names are prefixed with `I_` for inputs and `O_` for outputs. For example, if a transform has an input named
-    `my-input` and an output named `my-output`, the environment variables would be:
-        - `I_MY_INPUT`
-        - `O_MY_OUTPUT`
-    """  # TODO: fix this to remove bit about the prefixes
+    Any `env` name that does not follow this convention will be converted.
+    """
 
     test_command: str | None = None
     """
@@ -197,6 +222,7 @@ class Transform(BaseModel):
             raise ValueError(f"Invalid input value: {value}")
 
         if isinstance(data, list):
+            # TODO: Needs more tests
             data = {key: "N/A" for key in data}
         return {conform_env_key(key): conform_value(value) for key, value in data.items()}
 
