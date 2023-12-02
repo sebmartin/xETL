@@ -44,8 +44,6 @@ class InputDetails(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def set_defaults(cls, data: Any) -> Any:
-        if isinstance(data, str):
-            return {"description": data}
         if isinstance(data, dict):
             data = {conform_key(key): value for key, value in data.items()}
             if "optional" in data:
@@ -71,7 +69,7 @@ class InputDetails(BaseModel):
             }
             if type_ := mapping.get(value.lower()):
                 return type_
-        raise ValueError(f"Invalid input type: {value}")
+        raise ValueError(f"Invalid input type: {value}")  # TODO: test this
 
 
 class Transform(BaseModel):
@@ -212,26 +210,26 @@ class Transform(BaseModel):
     @field_validator("env", mode="before")
     @classmethod
     def conform_env(cls, data: Any) -> dict[str, InputDetails]:
-        # TODO: support a list as an input for "env" and assert on the type when
-        #   getting inputs from the job step
         def conform_value(value: Any) -> InputDetails:
-            if isinstance(value, str):
-                return InputDetails(description=value)
             if isinstance(value, dict):
                 return InputDetails(**value)
-            raise ValueError(f"Invalid input value: {value}")
+            return InputDetails(description=str(value))
 
         if isinstance(data, list):
-            # TODO: Needs more tests
+            invalid_keys = [str(key) for key in data if not isinstance(key, str)]
+            if invalid_keys:
+                raise ValueError(
+                    f"Transform env names must be strings, the following are invalid: {', '.join(invalid_keys)}"
+                )
             data = {key: "N/A" for key in data}
         return {conform_env_key(key): conform_value(value) for key, value in data.items()}
 
     @field_validator("env_type", mode="before")
     @classmethod
     def convert_env_type_lowercase(cls, data: Any) -> Any:
-        if not isinstance(data, str):
-            return data
-        return data.lower()
+        if isinstance(data, str):
+            return data.lower()
+        return data  # TODO: test this
 
     def execute(self, step: Step, dryrun: bool = False) -> int:
         """

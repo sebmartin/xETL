@@ -1,4 +1,3 @@
-import argparse
 import logging
 import os
 from pprint import pprint
@@ -33,7 +32,7 @@ def run_app(manifest_path: str, skip_to: str | None = None, dryrun=False, transf
 
     if dryrun:
         logger.info("Available transforms detected:")
-        pprint(transforms, width=140)
+        pprint(transforms, width=140)  # TODO: this doesn't get logged
 
     for job_name, steps in app.jobs.items():
         with log_context(LogContext.JOB, f"Running job: {job_name}"):

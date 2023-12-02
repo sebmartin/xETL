@@ -185,6 +185,21 @@ class TestDeserialization:
         assert transform.run_command == "python run.py"
         assert transform.test_command == "py.test"
 
+    @pytest.mark.parametrize("env_type", [1, "not-a-valid-env-type"])
+    def test_transform_env_type_invalid(self, env_type):
+        manifest = dedent(
+            f"""
+            name: simple-transform
+            type: transform
+            env_type: {env_type}
+            path: /tmp
+            run-command: python run.py
+            """
+        )
+        with pytest.raises(ValidationError) as exc:
+            Transform(**yaml.load(manifest, yaml.FullLoader))
+        assert "Input should be 'python' or 'bash'" in str(exc.value)
+
     def test_transform_env_all_defaults(self):
         manifest = dedent(
             """
@@ -215,6 +230,7 @@ class TestDeserialization:
             env:
               foo: foo description
               bar: bar description
+              not-a-string: 1
             run-command: python run.py
             """
         )
@@ -223,7 +239,47 @@ class TestDeserialization:
         assert transform.env == {
             "FOO": InputDetails(description="foo description"),
             "BAR": InputDetails(description="bar description"),
+            "NOT_A_STRING": InputDetails(description="1"),
         }, "The env variable names should have been transformed to InputDetails with defaults"
+
+    def test_transform_env_list_of_keys(self):
+        manifest = dedent(
+            """
+            name: simple-transform
+            type: transform
+            env_type: python
+            path: /tmp
+            env:
+              - foo
+              - bar
+            run-command: python run.py
+            """
+        )
+        transform = Transform(**yaml.load(manifest, yaml.FullLoader))
+
+        assert transform.env == {
+            "FOO": InputDetails(description="N/A"),
+            "BAR": InputDetails(description="N/A"),
+        }, "The env variable names should have been transformed to InputDetails with defaults"
+
+    def test_transform_env_invalid(self):
+        manifest = dedent(
+            """
+            name: simple-transform
+            type: transform
+            env_type: python
+            path: /tmp
+            env:
+              - 1
+              - good
+              - 2.2
+              - 3-fine
+            run-command: python run.py
+            """
+        )
+        with pytest.raises(ValidationError) as exc:
+            Transform(**yaml.load(manifest, yaml.FullLoader))
+        assert "Transform env names must be strings, the following are invalid: 1, 2.2" in str(exc.value)
 
     def test_transform_env_all_explicit(self):
         manifest = dedent(

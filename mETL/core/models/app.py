@@ -109,16 +109,15 @@ def resolve_placeholders(app: App):
             return getattr(obj, key, None)
 
         if (value := get(obj, keys[0])) is None:
-            # TODO: should this raise if key is not found?
             valid_keys = ", ".join(
                 sorted(
                     f"`{key}`" for key in (list(obj.keys()) if isinstance(obj, dict) else list(obj.model_dump().keys()))
                 )
             )
-            raise Exception(f"Invalid placeholder `{keys[0]}` in {match}. Valid keys are: {valid_keys}")
+            raise ValueError(f"Invalid placeholder `{keys[0]}` in {match}. Valid keys are: {valid_keys}")
         if len(keys) == 1:
             if isinstance(value, BaseModel | dict):
-                raise Exception("Incomplete key path")  # TODO improve
+                raise ValueError(f"Incomplete key path, variable must reference a leaf value: {match}")
             return value
         return get_key_value(value, keys[1:], match)
 
@@ -128,7 +127,7 @@ def resolve_placeholders(app: App):
 
         # Check for properties on the app
         if len(names) == 1:
-            return getattr(app, names[0], None)
+            return get_key_value(app, names, match)
 
         # Check for $tmp variables
         tmpdir = os.path.join(app.data, "tmp")
@@ -139,15 +138,14 @@ def resolve_placeholders(app: App):
 
         # Check for `previous`
         if names[0] == "previous" and "previous" not in named_steps:
-            raise Exception("Cannot use $previous placeholder on the first step")
+            raise ValueError("Cannot use $previous placeholder on the first step")
 
         # Resolve from previous steps
         if step := named_steps.get(names[0]):
             return get_key_value(step, names[1:], match)
         else:
-            # TODO: define an exception for this, and set that exception in the test
             valid_keys = ", ".join(sorted(f"`{key}`" for key in named_steps.keys()))
-            raise Exception(
+            raise ValueError(
                 f"Invalid placeholder `{names[0]}` in {match}."
                 + (f" Valid keys are: {valid_keys}" if valid_keys else " There are no steps to reference.")
             )
@@ -177,6 +175,8 @@ def resolve_placeholders(app: App):
                 string = string[: match.start()] + resolved + string[match.end() :]
                 pos = match.start() + len(resolved)
             else:
+                # TODO: we always raise now if a match does not have a value so we
+                #   should never hit this line
                 pos = match.start() + 1
         return string
 

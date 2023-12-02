@@ -6,7 +6,7 @@ import mock
 from pydantic import ValidationError
 import pytest
 
-from metl.core.models.app import App
+from metl.core.models.app import App, LoadAppManifestError
 
 
 def fake_expanduser(path):
@@ -17,8 +17,21 @@ def fake_abspath(path):
     return f"/absolute/path/to/{path}"
 
 
-@pytest.mark.parametrize("key", ["BASE_URL", "base-url", "Base_Url", "base_url"])
-def test_conform_env_keys(key):
+def test_app_from_file(app_manifest_simple_path):
+    assert isinstance(App.from_file(app_manifest_simple_path), App)
+
+
+@pytest.mark.parametrize("value", ["a string", b"\x00"])
+def test_app_from_file_invalid_yaml(value, tmpdir):
+    app_file = tmpdir / "app.yml"
+    app_file.write(value)
+    with pytest.raises(LoadAppManifestError) as exc:
+        App.from_file(str(app_file))
+    assert str(exc.value) == f"Invalid app manifest at {app_file}"
+
+
+@pytest.mark.parametrize("env", ["BASE_URL", "base-url", "Base_Url", "base_url"])
+def test_conform_env_keys(env):
     manifest = dedent(
         f"""
         name: Single composed job manifest
@@ -27,7 +40,7 @@ def test_conform_env_keys(key):
           job1:
             - transform: download
               env:
-                {key}: http://example.com/data
+                {env}: http://example.com/data
         """
     )
     app = App.from_yaml(manifest)
@@ -37,15 +50,35 @@ def test_conform_env_keys(key):
 
 
 @pytest.mark.parametrize(
+    "env_item",
+    ["not-a-dict", "1", "null", "true", " - 1", "- foo: bar"],
+)
+def test_conform_env_invalid_values(env_item):
+    manifest = dedent(
+        f"""
+        name: Single composed job manifest
+        data: /data
+        jobs:
+          job1:
+            - transform: download
+              env:
+                {env_item}
+        """
+    )
+    with pytest.raises(ValidationError) as exc:
+        App.from_yaml(manifest)
+    assert "jobs.job1.0.env\n  Input should be a valid dictionary" in str(exc.value)
+
+
+@pytest.mark.parametrize(
     "placeholder, resolved",
     [
         ("${downloader.env.output}/mid/${downloader.name}", "/some/path/mid/downloader"),
         ("[${downloader.env.output}${downloader.name}]", "[/some/pathdownloader]"),
-        ("${downloader.env.output}$downloader.name", "/some/path$downloader.name"),
+        ("${downloader.env.output}${downloader.name}", "/some/pathdownloader"),
         ("${downloader.env.output}/${previous.env.method}", "/some/path/GET"),
         ("${downloader.env.output}/$$${previous.env.method}", "/some/path/$GET"),
         ("$$$${downloader.env.output}", "$${downloader.env.output}"),
-        ("$downloader.env.base_url", "$downloader.env.base_url"),
         ("[${downloader.env.base_url}]", "[http://example.com/data]"),
         ("[$data] *${downloader.transform}* $$${downloader.env.method}$", "[/data] *download* $GET$"),
         ("~/relative/path/${downloader.name}", "/User/username/relative/path/downloader"),
@@ -133,9 +166,36 @@ def test_resolve_unknown_app_variable():
                 OUTPUT: $unknown/foo/bar/baz
         """
     )
-    app = App.from_yaml(manifest)
+    with pytest.raises(ValueError) as exc_info:
+        App.from_yaml(manifest)
+    assert (
+        "Invalid placeholder `unknown` in $unknown. Valid keys are: `data`, `description`, `env`, `jobs`, `name`"
+        in str(exc_info.value)
+    )
 
-    assert app.jobs["job1"][0].env["OUTPUT"] == "$unknown/foo/bar/baz", "The output should have stayed intact"
+
+def test_resolve_incomplete_path():
+    manifest = dedent(
+        f"""
+        name: Single composed job manifest
+        data: /data
+        jobs:
+          job1:
+            - name: downloader1
+              transform: download
+              env:
+                BASE_URL: http://example.com/data
+                OUTPUT: $data/foo
+            - name: downloader2
+              transform: download
+              env:
+                BASE_URL: http://example.com/data
+                OUTPUT: ${{previous.env}}
+        """
+    )
+    with pytest.raises(ValueError) as exc_info:
+        App.from_yaml(manifest)
+    assert "Incomplete key path, variable must reference a leaf value: ${previous.env}" in str(exc_info.value)
 
 
 def test_resolve_tmp_dir(tmpdir):
@@ -226,9 +286,8 @@ def test_resolve_unknown_step():
 
     with pytest.raises(Exception) as exc_info:
         App.from_yaml(manifest)
-    assert (
-        str(exc_info.value)
-        == "Invalid placeholder `unknown` in ${unknown.output}. Valid keys are: `downloader`, `previous`"
+    assert "Invalid placeholder `unknown` in ${unknown.output}. Valid keys are: `downloader`, `previous`" in str(
+        exc_info.value
     )
 
 
@@ -252,11 +311,11 @@ def test_resolve_unknown_variable():
         """
     )
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(ValueError) as exc_info:
         App.from_yaml(manifest)
     assert (
-        str(exc_info.value)
-        == "Invalid placeholder `unknown` in ${downloader.unknown}. Valid keys are: `description`, `env`, `name`, `skip`, `transform`"
+        "Invalid placeholder `unknown` in ${downloader.unknown}. Valid keys are: `description`, `env`, `name`, `skip`, `transform`"
+        in str(exc_info.value)
     )
 
 
@@ -304,12 +363,12 @@ def test_resolve_variable_previous_output_no_previous_output():
         """
     )
 
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(ValueError) as exc_info:
         App.from_yaml(manifest)
-    assert str(exc_info.value) == (
+    assert (
         "Invalid placeholder `unknown` in ${previous.unknown}. "
         "Valid keys are: `description`, `env`, `name`, `skip`, `transform`"
-    )
+    ) in str(exc_info.value)
 
 
 def test_resolve_variable_previous_output_first_step():
@@ -329,7 +388,7 @@ def test_resolve_variable_previous_output_first_step():
 
     with pytest.raises(Exception) as exc_info:
         App.from_yaml(manifest)
-    assert str(exc_info.value) == "Cannot use $previous placeholder on the first step"
+    assert "Cannot use $previous placeholder on the first step" in str(exc_info.value)
 
 
 def test_resolve_variable_previous_output_variable(tmpdir):
@@ -441,9 +500,8 @@ def test_run_app_circular_placeholders():
 
     with pytest.raises(Exception) as exc:
         App.from_yaml(manifest)
-    assert (
-        str(exc.value)
-        == "Invalid placeholder `downloader2` in ${downloader2.env.output}. There are no steps to reference."
+    assert "Invalid placeholder `downloader2` in ${downloader2.env.output}. There are no steps to reference." in str(
+        exc.value
     )
 
 
@@ -470,7 +528,6 @@ def test_run_app_named_placeholders_reference_other_job():
 
     with pytest.raises(Exception) as exc:
         App.from_yaml(manifest)
-    assert (
-        str(exc.value)
-        == "Invalid placeholder `downloader1` in ${downloader1.env.output}. There are no steps to reference."
+    assert "Invalid placeholder `downloader1` in ${downloader1.env.output}. There are no steps to reference." in str(
+        exc.value
     )
