@@ -1,9 +1,9 @@
 import argparse
 import logging
 import os
-from metl.core.logging import LogContext, log_context
-from metl.core.models.transform import TransformFailure
-from metl.core.runner import run_app
+from metl.logging import LogContext, log_context
+from metl.models.transform import TransformFailure
+from metl.runner import run_app
 
 logger = logging.getLogger(__name__)
 

@@ -10,7 +10,7 @@ setup(
     packages=find_namespace_packages(exclude=["tests.*"]),
     package_data={"": ["*.yml"]},
     entry_points={
-        "console_scripts": ["metl-run=mETL.core.runner:main"],
+        "console_scripts": ["metl-run=metl.runner:main"],
     },
     install_requires=[
         "PyYAML>=5.1",

@@ -5,7 +5,7 @@ import pytest
 
 @pytest.fixture
 def transforms_fixtures_path():
-    return os.path.abspath(os.path.dirname(__file__) + "/../../tests/fixtures")
+    return os.path.abspath(os.path.dirname(__file__) + "/../tests/fixtures")
 
 
 def app_file(app_yaml: str, tmpdir):

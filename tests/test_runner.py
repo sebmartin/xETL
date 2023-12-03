@@ -6,9 +6,9 @@ import pytest
 import mock
 import yaml
 
-from metl.core import runner
-from metl.core.models.step import Step
-from metl.core.models.transform import Transform, TransformFailure, UnknownTransformError
+from metl import runner
+from metl.models.step import Step
+from metl.models.transform import Transform, TransformFailure, UnknownTransformError
 
 
 def parse_yaml(yaml_str):
@@ -28,7 +28,7 @@ def strip_dates(string):
 
 @mock.patch("subprocess.run", mock.Mock())
 class TestAppManifest(object):
-    @mock.patch("metl.core.runner.execute_job_step", return_value=0)
+    @mock.patch("metl.runner.execute_job_step", return_value=0)
     def test_run_app_simple_job(self, execute_job_step, app_manifest_simple_path, transforms_fixtures_path):
         runner.run_app(app_manifest_simple_path, transforms_repo_path=transforms_fixtures_path)
 
@@ -55,7 +55,7 @@ class TestAppManifest(object):
         assert all(isinstance(t, Transform) for t in actual_transform.values())
         assert all(dryrun is False for dryrun in actual_dryruns)
 
-    @mock.patch("metl.core.runner.execute_job_steps")
+    @mock.patch("metl.runner.execute_job_steps")
     @pytest.mark.parametrize("dryrun", [True, False])
     def test_run_app_multiple_single_step_jobs(
         self, execute_job_steps, dryrun, app_manifest_multiple_single_step_jobs_path, transforms_fixtures_path
@@ -93,7 +93,7 @@ class TestAppManifest(object):
             list(actual_dryruns)
         )
 
-    @mock.patch("metl.core.runner.execute_job_steps")
+    @mock.patch("metl.runner.execute_job_steps")
     def test_run_app_one_job_multiple_steps(
         self, execute_job_steps, app_manifest_single_multiple_step_job_path, transforms_fixtures_path, tmpdir
     ):
@@ -118,7 +118,7 @@ class TestAppManifest(object):
             actual_transform == p for p in actual_transforms
         ), "Each call to `execute_job_steps` should have passed the same transforms dict"
 
-    @mock.patch("metl.core.runner.execute_job_step", return_value=127)
+    @mock.patch("metl.runner.execute_job_step", return_value=127)
     def test_run_stops_if_step_fails(
         self, execute_job_step, app_manifest_single_multiple_step_job_path, transforms_fixtures_path, tmpdir
     ):
@@ -128,7 +128,7 @@ class TestAppManifest(object):
         assert execute_job_step.call_count == 1, "execute_job_step() should have only been called once"
         assert excinfo.value.returncode == 127, "The exception should contain the return code of the failed transform"
 
-    @mock.patch("metl.core.models.transform.Transform.execute", return_value=127)
+    @mock.patch("metl.models.transform.Transform.execute", return_value=127)
     def test_run_app_with_unknown_transform(
         self, transform_execute, app_manifest_simple, transforms_fixtures_path, tmpdir
     ):
@@ -149,7 +149,7 @@ class TestAppManifest(object):
         ],
         ids=["skip-to-job-1", "skip-to-job-2", "skip-to-job1-step-2", "skip-to-job2-step-2"],
     )
-    @mock.patch("metl.core.runner.execute_job_steps")
+    @mock.patch("metl.runner.execute_job_steps")
     def test_run_app_skip_to(
         self,
         execute_job_steps,
@@ -168,7 +168,7 @@ class TestAppManifest(object):
         actual_steps_names = [[step.name for step in steps] for steps in actual_steps]
         assert actual_steps_names == expected_steps
 
-    @mock.patch("metl.core.runner.execute_job_step", return_value=0)
+    @mock.patch("metl.runner.execute_job_step", return_value=0)
     def test_run_app_skipped_steps_still_resolve(self, execute_job_step, tmpdir):
         app_manifest = dedent(
             """

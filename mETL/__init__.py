@@ -1,6 +1,6 @@
-__version__ = '0.0.1'
+__version__ = "0.0.1"
 
-from .core import runner
+from metl import runner
 
 __all__ = [
     "runner",

@@ -8,9 +8,9 @@ from traitlets import Any
 
 import yaml
 from pydantic import BaseModel, field_validator, model_validator
-from metl.core.models.step import ArgumentType, Step
+from metl.models.step import ArgumentType, Step
 
-from metl.core.models.utils import conform_env_key, load_yaml
+from metl.models.utils import conform_env_key, load_yaml
 
 logger = logging.getLogger(__name__)
 

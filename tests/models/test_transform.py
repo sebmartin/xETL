@@ -9,9 +9,9 @@ from mock import call
 from pydantic import ValidationError
 import pytest
 import yaml
-from metl.core.models.step import Step
+from metl.models.step import Step
 
-from metl.core.models.transform import EnvType, InputDetails, Transform, discover_transforms
+from metl.models.transform import EnvType, InputDetails, Transform, discover_transforms
 
 
 def transform_file(transform_yaml: str, tmpdir):
@@ -356,7 +356,7 @@ class TestDeserialization:
 class TestExecuteTransform:
     @pytest.fixture(autouse=True)
     def mock_popen(self):
-        with mock.patch("metl.core.models.transform.subprocess.Popen") as mock_popen:
+        with mock.patch("metl.models.transform.subprocess.Popen") as mock_popen:
             mock_popen.return_value.poll.return_value = 0
             mock_popen.return_value.returncode = 0
             mock_popen.return_value.stdout.readline.side_effect = [
@@ -370,7 +370,7 @@ class TestExecuteTransform:
 
     @pytest.fixture
     def mock_logger(self):
-        with mock.patch("metl.core.models.transform.logger") as mock_logger:
+        with mock.patch("metl.models.transform.logger") as mock_logger:
             yield mock_logger
 
     def test_execute_transform(self, simple_transform_manifest_path, mock_logger, mock_popen):

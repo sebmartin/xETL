@@ -1,7 +1,7 @@
 from typing import Any
 from pydantic import BaseModel, field_validator
 
-from metl.core.models.utils import conform_env_key
+from metl.models.utils import conform_env_key
 
 ArgumentType = str | int | float | bool
 
@@ -26,7 +26,7 @@ class Step(BaseModel):
     The name of the transform to execute. The transform needs to be discovered by the runner in order
     to be referenced by name and be found. The name matching is case insensitive.
 
-    See the `metl.core.models.transform.discover_transforms` function for more information on the transform
+    See the `metl.models.transform.discover_transforms` function for more information on the transform
     discovery process.
     """
 

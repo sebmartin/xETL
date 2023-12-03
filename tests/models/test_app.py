@@ -6,7 +6,7 @@ import mock
 from pydantic import ValidationError
 import pytest
 
-from metl.core.models.app import App, LoadAppManifestError
+from metl.models.app import App, LoadAppManifestError
 
 
 def fake_expanduser(path):
@@ -86,7 +86,7 @@ def test_conform_env_invalid_values(env_item):
         ("${previous.env.OUTPUT}", "/some/path"),
     ],
 )
-@mock.patch("metl.core.models.app.os.path.expanduser", side_effect=fake_expanduser)
+@mock.patch("metl.models.app.os.path.expanduser", side_effect=fake_expanduser)
 def test_resolve_placeholders(_, placeholder, resolved):
     manifest = dedent(
         f"""
@@ -111,7 +111,7 @@ def test_resolve_placeholders(_, placeholder, resolved):
     assert app.jobs["job1"][1].env["OUTPUT"] == resolved
 
 
-@mock.patch("metl.core.models.app.os.path.abspath", side_effect=fake_abspath)
+@mock.patch("metl.models.app.os.path.abspath", side_effect=fake_abspath)
 def test_resolve_placeholders_expands_relative_data_dir(_):
     manifest = dedent(
         """

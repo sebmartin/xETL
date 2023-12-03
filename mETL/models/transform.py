@@ -5,9 +5,9 @@ import shlex
 import subprocess
 from typing import Any, Type
 from pydantic import BaseModel, ValidationError, field_validator, model_validator
-from metl.core.models.step import Step
+from metl.models.step import Step
 
-from metl.core.models.utils import conform_env_key, conform_key, load_yaml
+from metl.models.utils import conform_env_key, conform_key, load_yaml
 
 logger = logging.getLogger(__name__)
 
