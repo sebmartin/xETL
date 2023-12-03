@@ -15,20 +15,25 @@ logger = logging.getLogger(__name__)
 
 
 # TODO: move to models.app?
-def run_app(manifest_path: str, skip_to: str | None = None, dryrun=False, transforms_repo_path=None):
+def run_app(manifest_path: str, skip_to: str | None = None, dryrun=False):
     app = App.from_file(manifest_path)
     if dryrun:
         logger.info("Manifest parsed as:")
         pprint(app, width=140)  # TODO: this doesn't get logged
     else:
         logger.info("Parsed manifest for app: {}".format(app.name))
-    transforms_repo_path = transforms_repo_path or TRANSFORMS_REPO_PATH
-    logger.info(f"Discovering transforms at: {transforms_repo_path}")
-    transforms = discover_transforms(transforms_repo_path)
 
-    if not transforms:
-        logger.error("Could not find any transforms at {}".format(transforms_repo_path))
-        return
+    if transforms_repo_path := app.transforms_path:
+        logger.info(f"Discovering transforms at: {transforms_repo_path}")
+        transforms = discover_transforms(transforms_repo_path)
+        if not transforms:
+            logger.error("Could not find any transforms at {}".format(transforms_repo_path))
+            return
+    else:
+        logger.warning(
+            "The property `transforms_path` is not defined in the app manifest, no transforms will be available"
+        )
+        transforms = {}
 
     if dryrun:
         logger.info("Available transforms detected:")

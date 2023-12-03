@@ -30,7 +30,7 @@ def strip_dates(string):
 class TestAppManifest(object):
     @mock.patch("metl.runner.execute_job_step", return_value=0)
     def test_run_app_simple_job(self, execute_job_step, app_manifest_simple_path, transforms_fixtures_path):
-        runner.run_app(app_manifest_simple_path, transforms_repo_path=transforms_fixtures_path)
+        runner.run_app(app_manifest_simple_path)
 
         assert execute_job_step.call_count == 1, "`execute_job_step` was called an unexpected number of times"
         actual_steps = [call[1].get("step") or call[0][0] for call in execute_job_step.call_args_list]
@@ -60,9 +60,7 @@ class TestAppManifest(object):
     def test_run_app_multiple_single_step_jobs(
         self, execute_job_steps, dryrun, app_manifest_multiple_single_step_jobs_path, transforms_fixtures_path
     ):
-        runner.run_app(
-            app_manifest_multiple_single_step_jobs_path, dryrun=dryrun, transforms_repo_path=transforms_fixtures_path
-        )
+        runner.run_app(app_manifest_multiple_single_step_jobs_path, dryrun=dryrun)
 
         assert execute_job_steps.call_count == 2, "`execute_job_steps` was called an unexpected number of times"
 
@@ -97,7 +95,7 @@ class TestAppManifest(object):
     def test_run_app_one_job_multiple_steps(
         self, execute_job_steps, app_manifest_single_multiple_step_job_path, transforms_fixtures_path, tmpdir
     ):
-        runner.run_app(app_manifest_single_multiple_step_job_path, transforms_repo_path=transforms_fixtures_path)
+        runner.run_app(app_manifest_single_multiple_step_job_path)
 
         assert execute_job_steps.call_count == 1, "`execute_job_steps` was called an unexpected number of times"
 
@@ -123,10 +121,25 @@ class TestAppManifest(object):
         self, execute_job_step, app_manifest_single_multiple_step_job_path, transforms_fixtures_path, tmpdir
     ):
         with pytest.raises(TransformFailure) as excinfo:
-            runner.run_app(app_manifest_single_multiple_step_job_path, transforms_repo_path=transforms_fixtures_path)
+            runner.run_app(app_manifest_single_multiple_step_job_path)
 
         assert execute_job_step.call_count == 1, "execute_job_step() should have only been called once"
         assert excinfo.value.returncode == 127, "The exception should contain the return code of the failed transform"
+
+    @mock.patch("metl.runner.execute_job_steps")
+    def test_run_app_without_transforms_path_warns(self, execute_job_steps, tmpdir, caplog):
+        manifest = dedent(
+            """
+            name: Job without manifests
+            data: /data
+            jobs: {}
+            """
+        )
+        runner.run_app(app_file(manifest, str(tmpdir)))
+        assert (
+            "The property `transforms_path` is not defined in the app manifest, no transforms will be available"
+            in caplog.messages
+        )
 
     @mock.patch("metl.models.transform.Transform.execute", return_value=127)
     def test_run_app_with_unknown_transform(
@@ -134,7 +147,7 @@ class TestAppManifest(object):
     ):
         manifest = app_manifest_simple.replace("transform: download", "transform: unknown")
         with pytest.raises(UnknownTransformError) as excinfo:
-            runner.run_app(app_file(manifest, tmpdir), transforms_repo_path=transforms_fixtures_path)
+            runner.run_app(app_file(manifest, tmpdir))
 
         assert str(excinfo.value) == "Unknown transform `unknown`, should be one of: ['download', 'parser', 'splitter']"
         transform_execute.assert_not_called()
@@ -156,13 +169,8 @@ class TestAppManifest(object):
         skip_to,
         expected_steps,
         app_manifest_multiple_jobs_with_multiples_path,
-        transforms_fixtures_path,
     ):
-        runner.run_app(
-            app_manifest_multiple_jobs_with_multiples_path,
-            skip_to=skip_to,
-            transforms_repo_path=transforms_fixtures_path,
-        )
+        runner.run_app(app_manifest_multiple_jobs_with_multiples_path, skip_to=skip_to)
 
         actual_steps = [call[1].get("steps") or call[0][1] for call in execute_job_steps.call_args_list]
         actual_steps_names = [[step.name for step in steps] for steps in actual_steps]
@@ -202,11 +210,13 @@ class TestRunnerEndToEnd:
         input_dir.join("file1.txt").write_text("file1", encoding="utf-8")
         input_dir.join("file2.txt").write_text("file2", encoding="utf-8")
 
+        transforms_repo_path = tmpdir.mkdir("transforms")
         app = dedent(
             f"""
             name: test-app
             description: A test app to run end-to-end tests on
             data: {output_dir}
+            transforms_path: {transforms_repo_path}
             jobs:
               main:
                 - name: list
@@ -223,7 +233,6 @@ class TestRunnerEndToEnd:
         )
         (tmpdir / "app.yml").write_text(app, encoding="utf-8")
 
-        transforms_repo_path = tmpdir.mkdir("transforms")
         list_files_transform = dedent(
             """
             name: list-files
@@ -250,7 +259,6 @@ class TestRunnerEndToEnd:
         )
         (transforms_repo_path.mkdir("cat-files") / "manifest.yml").write_text(cat_files_transform, encoding="utf-8")
 
-        # runner.run_app(str(tmpdir / "app.yml"), transforms_repo_path=transforms_repo_path)
         result = subprocess.run(
             [
                 ".venv/bin/python",
@@ -258,8 +266,6 @@ class TestRunnerEndToEnd:
                 "metl",
                 # "--help"
                 str(tmpdir / "app.yml"),
-                "--transforms",
-                str(transforms_repo_path),
                 "--dryrun",
             ],
             capture_output=True,

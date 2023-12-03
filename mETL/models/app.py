@@ -61,6 +61,12 @@ class App(BaseModel):
     it's possible to override the app's env value by specifying a different value in a step's env.
     """
 
+    transforms_path: str | None = None
+    """
+    The path to the directory containing the transforms that are used in the app. This can be an absolute
+    path or a path relative to the app manifest file. If the directory does not exist,
+    """
+
     jobs: dict[str, list["Step"]]
     """
     A dictionary of jobs. Each job is a list of steps. Each step executes a transform with env variables

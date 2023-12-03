@@ -20,11 +20,12 @@ def app_file(app_yaml: str, tmpdir):
 
 
 @pytest.fixture
-def app_manifest_simple():
+def app_manifest_simple(transforms_fixtures_path):
     return dedent(
-        """
+        f"""
         name: Simple app manifest
         data: /data
+        transforms_path: {transforms_fixtures_path}
         jobs:
           my-job:
             - transform: download
@@ -42,11 +43,12 @@ def app_manifest_simple_path(app_manifest_simple, tmpdir):
 
 
 @pytest.fixture
-def app_manifest_multiple_single_step_jobs():
+def app_manifest_multiple_single_step_jobs(transforms_fixtures_path):
     return dedent(
-        """
+        f"""
         name: Multiple job manifest
         data: /data
+        transforms_path: {transforms_fixtures_path}
         jobs:
           download:
             - transform: download
@@ -69,11 +71,12 @@ def app_manifest_multiple_single_step_jobs_path(app_manifest_multiple_single_ste
 
 
 @pytest.fixture
-def app_manifest_single_multiple_step_job():
+def app_manifest_single_multiple_step_job(transforms_fixtures_path):
     return dedent(
-        """
+        f"""
         name: Multiple job manifest
         data: /data
+        transforms_path: {transforms_fixtures_path}
         jobs:
           download:
             - transform: download
@@ -95,11 +98,12 @@ def app_manifest_single_multiple_step_job_path(app_manifest_single_multiple_step
 
 
 @pytest.fixture
-def app_manifest_multiple_jobs_with_multiples():
+def app_manifest_multiple_jobs_with_multiples(transforms_fixtures_path):
     return dedent(
-        """
+        f"""
         name: Multiple job manifest
         data: /data
+        transforms_path: {transforms_fixtures_path}
         jobs:
           download-1:
             - name: download-1
