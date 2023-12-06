@@ -14,12 +14,25 @@ TRANSFORMS_REPO_PATH = os.path.abspath(os.path.dirname(__file__) + "/transforms"
 logger = logging.getLogger(__name__)
 
 
-# TODO: move to models.app?
-def run_app(manifest_path: str, skip_to: str | None = None, dryrun=False):
+class NoAliasDumper(yaml.SafeDumper):
+    def ignore_aliases(self, data):
+        return True
+
+
+def execute_app(manifest_path: str, skip_to: str | None = None, dryrun=False):
     app = App.from_file(manifest_path)
     if dryrun:
         logger.info("Manifest parsed as:")
-        pprint(app, width=140)  # TODO: this doesn't get logged
+        for line in (
+            yaml.dump(
+                app.model_dump(exclude_unset=True),
+                Dumper=NoAliasDumper,
+                sort_keys=False,
+            )
+            .strip()
+            .split("\n")
+        ):
+            logger.info("  " + line)
     else:
         logger.info("Parsed manifest for app: {}".format(app.name))
 
@@ -36,11 +49,10 @@ def run_app(manifest_path: str, skip_to: str | None = None, dryrun=False):
         transforms = {}
 
     if dryrun:
-        logger.info("Available transforms detected:")
-        pprint(transforms, width=140)  # TODO: this doesn't get logged
+        logger.info(f"Available transforms detected: {', '.join(transform.name for transform in transforms.values())}")
 
     for job_name, steps in app.jobs.items():
-        with log_context(LogContext.JOB, f"Running job: {job_name}"):
+        with log_context(LogContext.JOB, f"Executing job: {job_name}"):
             if skip_to:
                 if job_name != skip_to and f"{job_name}." not in skip_to:
                     logger.warning("Skipping this job...")
@@ -63,10 +75,10 @@ def execute_job_steps(job_name: str, steps: list[Step], transforms: dict[str, Tr
     for i, step in enumerate(steps):
         if i > 0:
             logger.info("")
-        logger.info(f"Running step: {f'#{i + 1}'}")
+        logger.info(f"Executing step {f'{i + 1}'} of {len(steps)}")
         for line in yaml.dump(step.model_dump(), indent=2, sort_keys=False).strip().split("\n"):
             logger.info("  " + line)
-        with log_context(LogContext.STEP, f"Running transform: {step.transform}") as tail:
+        with log_context(LogContext.STEP, f"Executing transform: {step.transform}") as tail:
             if step.skip:
                 logger.warning(f"Skipping step `{step.name or f'#{i + 1}'}` from job '{job_name}'")
                 continue

@@ -4,13 +4,13 @@ from setuptools import setup, find_namespace_packages
 
 setup(
     name="mETL",
-    description="A small, basic ETL library for local processing",
+    description="A micro ETL library for local processing",
     version="0.0.1",
     url="https://github.com/sebmartin/mETL",
     packages=find_namespace_packages(exclude=["tests.*"]),
     package_data={"": ["*.yml"]},
     entry_points={
-        "console_scripts": ["metl-run=metl.runner:main"],
+        "console_scripts": ["metl=metl.__main__:main"],
     },
     install_requires=[
         "PyYAML>=5.1",

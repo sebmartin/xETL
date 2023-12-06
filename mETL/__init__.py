@@ -1,7 +1,7 @@
 __version__ = "0.0.1"
 
-from metl import runner
+from metl import engine
 
 __all__ = [
-    "runner",
+    "engine",
 ]

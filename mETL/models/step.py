@@ -23,7 +23,7 @@ class Step(BaseModel):
 
     transform: str
     """
-    The name of the transform to execute. The transform needs to be discovered by the runner in order
+    The name of the transform to execute. The transform needs to be discovered by the engine in order
     to be referenced by name and be found. The name matching is case insensitive.
 
     See the `metl.models.transform.discover_transforms` function for more information on the transform
@@ -38,11 +38,11 @@ class Step(BaseModel):
 
     skip: bool = False
     """
-    If `True`, the step will be skipped when running the app. This can be useful for temporarily disabling
+    If `True`, the step will be skipped when executing the app. This can be useful for temporarily disabling
     steps during development without removing them from the app. It's akin to commenting out the step
     however the variable resolution will still occur (e.g. future steps can still reference this step's
     values).
-    """  # TODO: this has no tests in test_runner, only skip_to=
+    """
 
     @field_validator("env", mode="before")
     @classmethod

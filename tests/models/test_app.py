@@ -447,7 +447,7 @@ def test_resolve_variable_with_literal_dollar_sign():
     assert steps[1].env["FOO"] == "http://example.com/$data"
 
 
-def test_run_app_chained_placeholders():
+def test_resolve_variable_chained_placeholders():
     manifest = dedent(
         """
         name: Single composed job manifest
@@ -478,7 +478,7 @@ def test_run_app_chained_placeholders():
     assert actual_base_urls == ["http://example.com/data"] * 3
 
 
-def test_run_app_circular_placeholders():
+def test_resolve_variable_circular_placeholders():
     manifest = dedent(
         """
         name: Single composed job manifest
@@ -505,7 +505,7 @@ def test_run_app_circular_placeholders():
     )
 
 
-def test_run_app_named_placeholders_reference_other_job():
+def test_resolve_variable_named_placeholders_reference_other_job():
     manifest = dedent(
         """
         name: Single composed job manifest

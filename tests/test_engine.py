@@ -6,7 +6,7 @@ import pytest
 import mock
 import yaml
 
-from metl import runner
+from metl import engine
 from metl.models.step import Step
 from metl.models.transform import Transform, TransformFailure, UnknownTransformError
 
@@ -28,9 +28,9 @@ def strip_dates(string):
 
 @mock.patch("subprocess.run", mock.Mock())
 class TestAppManifest(object):
-    @mock.patch("metl.runner.execute_job_step", return_value=0)
-    def test_run_app_simple_job(self, execute_job_step, app_manifest_simple_path, transforms_fixtures_path):
-        runner.run_app(app_manifest_simple_path)
+    @mock.patch("metl.engine.execute_job_step", return_value=0)
+    def test_execute_app_simple_job(self, execute_job_step, app_manifest_simple_path, transforms_fixtures_path):
+        engine.execute_app(app_manifest_simple_path)
 
         assert execute_job_step.call_count == 1, "`execute_job_step` was called an unexpected number of times"
         actual_steps = [call[1].get("step") or call[0][0] for call in execute_job_step.call_args_list]
@@ -55,12 +55,12 @@ class TestAppManifest(object):
         assert all(isinstance(t, Transform) for t in actual_transform.values())
         assert all(dryrun is False for dryrun in actual_dryruns)
 
-    @mock.patch("metl.runner.execute_job_steps")
+    @mock.patch("metl.engine.execute_job_steps")
     @pytest.mark.parametrize("dryrun", [True, False])
-    def test_run_app_multiple_single_step_jobs(
+    def test_execute_app_multiple_single_step_jobs(
         self, execute_job_steps, dryrun, app_manifest_multiple_single_step_jobs_path, transforms_fixtures_path
     ):
-        runner.run_app(app_manifest_multiple_single_step_jobs_path, dryrun=dryrun)
+        engine.execute_app(app_manifest_multiple_single_step_jobs_path, dryrun=dryrun)
 
         assert execute_job_steps.call_count == 2, "`execute_job_steps` was called an unexpected number of times"
 
@@ -91,11 +91,11 @@ class TestAppManifest(object):
             list(actual_dryruns)
         )
 
-    @mock.patch("metl.runner.execute_job_steps")
-    def test_run_app_one_job_multiple_steps(
+    @mock.patch("metl.engine.execute_job_steps")
+    def test_execute_app_one_job_multiple_steps(
         self, execute_job_steps, app_manifest_single_multiple_step_job_path, transforms_fixtures_path, tmpdir
     ):
-        runner.run_app(app_manifest_single_multiple_step_job_path)
+        engine.execute_app(app_manifest_single_multiple_step_job_path)
 
         assert execute_job_steps.call_count == 1, "`execute_job_steps` was called an unexpected number of times"
 
@@ -116,18 +116,18 @@ class TestAppManifest(object):
             actual_transform == p for p in actual_transforms
         ), "Each call to `execute_job_steps` should have passed the same transforms dict"
 
-    @mock.patch("metl.runner.execute_job_step", return_value=127)
-    def test_run_stops_if_step_fails(
+    @mock.patch("metl.engine.execute_job_step", return_value=127)
+    def test_execute_app_stops_if_step_fails(
         self, execute_job_step, app_manifest_single_multiple_step_job_path, transforms_fixtures_path, tmpdir
     ):
         with pytest.raises(TransformFailure) as excinfo:
-            runner.run_app(app_manifest_single_multiple_step_job_path)
+            engine.execute_app(app_manifest_single_multiple_step_job_path)
 
         assert execute_job_step.call_count == 1, "execute_job_step() should have only been called once"
         assert excinfo.value.returncode == 127, "The exception should contain the return code of the failed transform"
 
-    @mock.patch("metl.runner.execute_job_steps")
-    def test_run_app_without_transforms_path_warns(self, execute_job_steps, tmpdir, caplog):
+    @mock.patch("metl.engine.execute_job_steps")
+    def test_execute_app_without_transforms_path_warns(self, execute_job_steps, tmpdir, caplog):
         manifest = dedent(
             """
             name: Job without manifests
@@ -135,19 +135,19 @@ class TestAppManifest(object):
             jobs: {}
             """
         )
-        runner.run_app(app_file(manifest, str(tmpdir)))
+        engine.execute_app(app_file(manifest, str(tmpdir)))
         assert (
             "The property `transforms_path` is not defined in the app manifest, no transforms will be available"
             in caplog.messages
         )
 
     @mock.patch("metl.models.transform.Transform.execute", return_value=127)
-    def test_run_app_with_unknown_transform(
+    def test_execute_app_with_unknown_transform(
         self, transform_execute, app_manifest_simple, transforms_fixtures_path, tmpdir
     ):
         manifest = app_manifest_simple.replace("transform: download", "transform: unknown")
         with pytest.raises(UnknownTransformError) as excinfo:
-            runner.run_app(app_file(manifest, tmpdir))
+            engine.execute_app(app_file(manifest, tmpdir))
 
         assert str(excinfo.value) == "Unknown transform `unknown`, should be one of: ['download', 'parser', 'splitter']"
         transform_execute.assert_not_called()
@@ -162,22 +162,22 @@ class TestAppManifest(object):
         ],
         ids=["skip-to-job-1", "skip-to-job-2", "skip-to-job1-step-2", "skip-to-job2-step-2"],
     )
-    @mock.patch("metl.runner.execute_job_steps")
-    def test_run_app_skip_to(
+    @mock.patch("metl.engine.execute_job_steps")
+    def test_execute_app_skip_to(
         self,
         execute_job_steps,
         skip_to,
         expected_steps,
         app_manifest_multiple_jobs_with_multiples_path,
     ):
-        runner.run_app(app_manifest_multiple_jobs_with_multiples_path, skip_to=skip_to)
+        engine.execute_app(app_manifest_multiple_jobs_with_multiples_path, skip_to=skip_to)
 
         actual_steps = [call[1].get("steps") or call[0][1] for call in execute_job_steps.call_args_list]
         actual_steps_names = [[step.name for step in steps] for steps in actual_steps]
         assert actual_steps_names == expected_steps
 
-    @mock.patch("metl.runner.execute_job_step", return_value=0)
-    def test_run_app_skipped_steps_still_resolve(self, execute_job_step, tmpdir):
+    @mock.patch("metl.engine.execute_job_step", return_value=0)
+    def test_execute_app_skipped_steps_still_resolve(self, execute_job_step, tmpdir):
         app_manifest = dedent(
             """
             name: Multiple job manifest
@@ -186,6 +186,7 @@ class TestAppManifest(object):
               download:
                 - name: skipped
                   transform: download
+                  skip: true
                   env:
                     BASE_URL: http://example.com/data1
                     THROTTLE: 1000
@@ -197,14 +198,14 @@ class TestAppManifest(object):
                     OUTPUT: /tmp/data1/splits
             """
         )
-        runner.run_app(app_file(app_manifest, tmpdir), skip_to="download.references-skipped")
+        engine.execute_app(app_file(app_manifest, tmpdir))
         assert execute_job_step.call_count == 1, "execute_job_step() should have only been called once"
         executed_step = execute_job_step.call_args[0][0]
         assert executed_step.env["SOURCE"] == "/tmp/data1/source"
 
 
-class TestRunnerEndToEnd:
-    def test_run_app_dryrun(self, tmpdir):
+class TestEngineEndToEnd:
+    def test_execute_app_dryrun(self, tmpdir):
         output_dir = tmpdir.mkdir("output")
         input_dir = tmpdir.mkdir("input")
         input_dir.join("file1.txt").write_text("file1", encoding="utf-8")
@@ -273,15 +274,31 @@ class TestRunnerEndToEnd:
 
         expected_output = dedent(
             """
-            ╭──╴Running app: {data_dir}/app.yml ╶╴╴╶ ╶
+            ╭──╴Executing app: {data_dir}/app.yml ╶╴╴╶ ╶
             │ Loading app manifest at: {data_dir}/app.yml
             │ Manifest parsed as:
+            │   name: test-app
+            │   description: A test app to run end-to-end tests on
+            │   data: {data_dir}/output
+            │   transforms_path: {data_dir}/transforms
+            │   jobs:
+            │     main:
+            │     - name: list
+            │       transform: list-files
+            │       env:
+            │         PATH: {data_dir}/input
+            │         OUTPUT: {data_dir}/output/files.txt
+            │     - name: cat
+            │       transform: cat-files
+            │       env:
+            │         FILES: {data_dir}/output/files.txt
+            │         OUTPUT: {data_dir}/output/cat.txt
             │ Discovering transforms at: {data_dir}/transforms
             │ Loading transform at: {data_dir}/transforms/list-files/manifest.yml
             │ Loading transform at: {data_dir}/transforms/cat-files/manifest.yml
-            │ Available transforms detected:
-            ╔══╸Running job: main ═╴╴╶ ╶
-            ║ Running step: #1
+            │ Available transforms detected: list-files, cat-files
+            ╔══╸Executing job: main ═╴╴╶ ╶
+            ║ Executing step 1 of 2
             ║   name: list
             ║   description: null
             ║   transform: list-files
@@ -289,14 +306,14 @@ class TestRunnerEndToEnd:
             ║     PATH: {data_dir}/input
             ║     OUTPUT: {data_dir}/output/files.txt
             ║   skip: false
-            ║┏━━╸Running transform: list-files ━╴╴╶ ╶
+            ║┏━━╸Executing transform: list-files ━╴╴╶ ╶
             ║┃2023-11-23 21:36:52.982┊ DRYRUN: Would execute with:
             ║┃2023-11-23 21:36:52.982┊   command: ['ls', '-la', '$PATH', '>', '$OUTPUT']
             ║┃2023-11-23 21:36:52.982┊   cwd: {data_dir}/transforms/list-files
             ║┃2023-11-23 21:36:52.982┊   env: PATH={data_dir}/input, OUTPUT={data_dir}/output/files.txt
             ║┗━━╸Return code: 0 ━╴╴╶ ╶
             ║{space}
-            ║ Running step: #2
+            ║ Executing step 2 of 2
             ║   name: cat
             ║   description: null
             ║   transform: cat-files
@@ -304,7 +321,7 @@ class TestRunnerEndToEnd:
             ║     FILES: {data_dir}/output/files.txt
             ║     OUTPUT: {data_dir}/output/cat.txt
             ║   skip: false
-            ║┏━━╸Running transform: cat-files ━╴╴╶ ╶
+            ║┏━━╸Executing transform: cat-files ━╴╴╶ ╶
             ║┃2023-11-23 21:36:52.983┊ DRYRUN: Would execute with:
             ║┃2023-11-23 21:36:52.983┊   command: ['cat', '$FILES', '|', 'xargs', 'cat', '>', '$OUTPUT']
             ║┃2023-11-23 21:36:52.983┊   cwd: {data_dir}/transforms/cat-files

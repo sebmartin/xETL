@@ -5,6 +5,7 @@ import shlex
 import subprocess
 from typing import Any, Type
 from pydantic import BaseModel, ValidationError, field_validator, model_validator
+import yaml
 from metl.models.step import Step
 
 from metl.models.utils import conform_env_key, conform_key, load_yaml
@@ -33,6 +34,13 @@ class EnvType(Enum):
 
     PYTHON = "python"
     BASH = "bash"
+
+    @staticmethod
+    def _yaml_representer(dumper: yaml.Dumper, data):
+        return dumper.represent_str(data.value)
+
+
+yaml.add_representer(EnvType, EnvType._yaml_representer)
 
 
 class InputDetails(BaseModel):
@@ -229,7 +237,7 @@ class Transform(BaseModel):
     def convert_env_type_lowercase(cls, data: Any) -> Any:
         if isinstance(data, str):
             return data.lower()
-        return data  # TODO: test this
+        return data
 
     def execute(self, step: Step, dryrun: bool = False) -> int:
         """
