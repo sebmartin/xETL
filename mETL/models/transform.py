@@ -8,13 +8,16 @@ from pydantic import BaseModel, ValidationError, field_validator, model_validato
 import yaml
 from metl.models.step import Step
 
-from metl.models.utils import conform_env_key, conform_key, load_yaml
+from metl.models.utils import (
+    InvalidManifestError,
+    ManifestLoadError,
+    conform_env_key,
+    conform_key,
+    load_file,
+    parse_yaml,
+)
 
 logger = logging.getLogger(__name__)
-
-
-class LoadTransformManifestError(Exception):
-    pass
 
 
 class UnknownTransformError(Exception):
@@ -190,20 +193,22 @@ class Transform(BaseModel):
     An optional command to execute when running the transform's tests. This is currently experimental and not
     completely implemented. The idea is to be able to build some ergonomics around being able to run all tests
     for all transforms regardless of their implementation (python, bash, rust, etc.)
-    """
-    # TODO: add a command for this to the CLI
+    """  # TODO: add a command for this to the CLI
 
     @classmethod
     def from_file(cls, path: str) -> "Transform":
-        logger.info("Loading transform at: {}".format(path))
-        if manifest := load_yaml(path):
-            return cls(
-                **{
-                    **manifest,
-                    "path": os.path.dirname(path),
-                }
-            )
-        raise LoadTransformManifestError(f"Invalid app manifest at {path}")
+        logger.info(f"Loading transform at: {path}")
+        yaml_content = load_file(path)
+        try:
+            return cls.from_yaml(yaml_content, path=os.path.dirname(path))
+        except Exception as e:
+            raise ManifestLoadError(f"Could not load YAML file at path: {path}") from e
+
+    @classmethod
+    def from_yaml(cls, yaml_content: str, path: str) -> "Transform":
+        manifest = parse_yaml(yaml_content)
+        manifest["path"] = path
+        return cls(**manifest)
 
     @model_validator(mode="before")
     @classmethod
@@ -321,7 +326,9 @@ def discover_transforms(transforms_repo_path: str) -> dict[str, Transform]:
             transforms[transform.name] = transform
         except ValidationError as e:
             logger.warning(f"Skipping transform due to validation error: {e}")
-        except LoadTransformManifestError as e:
-            logger.warning(f"Skipping transform due to error: {e}")
+        except (ManifestLoadError, InvalidManifestError) as e:
+            logger.warning(f"Skipping transform due to error: {str(e)}")
+        except Exception as e:
+            logger.warning(f"Skipping transform due to unexpected error: {e}")
 
     return transforms

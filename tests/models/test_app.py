@@ -6,7 +6,8 @@ import mock
 from pydantic import ValidationError
 import pytest
 
-from metl.models.app import App, LoadAppManifestError
+from metl.models.app import App
+from metl.models.utils import InvalidManifestError, ManifestLoadError
 
 
 def fake_expanduser(path):
@@ -21,13 +22,49 @@ def test_app_from_file(app_manifest_simple_path):
     assert isinstance(App.from_file(app_manifest_simple_path), App)
 
 
-@pytest.mark.parametrize("value", ["a string", b"\x00"])
-def test_app_from_file_invalid_yaml(value, tmpdir):
+def test_app_from_file_not_found(tmpdir):
+    app_file = tmpdir / "not-found" / "app.yml"
+    with pytest.raises(ManifestLoadError) as exc:
+        App.from_file(str(app_file))
+    assert str(exc.value) == f"Failed to load file; [Errno 2] No such file or directory: '{app_file}'"
+
+
+@pytest.mark.parametrize(
+    "value, error",
+    [
+        (
+            "a string",
+            "Failed to parse YAML, expected a dictionary",
+        ),
+        (
+            b"\x00",
+            "Failed to parse YAML; unacceptable character #x0000: special characters are not allowed\n"
+            '  in "<unicode string>", position 0',
+        ),
+    ],
+)
+def test_app_from_file_invalid_yaml(value, error, tmpdir):
     app_file = tmpdir / "app.yml"
     app_file.write(value)
-    with pytest.raises(LoadAppManifestError) as exc:
+    with pytest.raises(ManifestLoadError) as exc:
         App.from_file(str(app_file))
-    assert str(exc.value) == f"Invalid app manifest at {app_file}"
+    assert str(exc.value) == "Error while parsing YAML at path: {path}; {error}".format(path=app_file, error=error)
+
+
+@pytest.mark.parametrize(
+    "value, error",
+    [
+        ("a string", "Failed to parse YAML, expected a dictionary"),
+        (
+            b"\x00",
+            'Failed to parse YAML; unacceptable character #x0000: special characters are not allowed\n  in "<byte string>", position 0',
+        ),
+    ],
+)
+def test_app_from_yaml_invalid_yaml(value, error, tmpdir):
+    with pytest.raises(InvalidManifestError) as exc:
+        App.from_yaml(value)
+    assert str(exc.value) == error
 
 
 @pytest.mark.parametrize("env", ["BASE_URL", "base-url", "Base_Url", "base_url"])

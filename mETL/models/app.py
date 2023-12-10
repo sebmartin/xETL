@@ -4,19 +4,14 @@ import re
 import tempfile
 from collections import OrderedDict
 from typing import Iterable
-from traitlets import Any
 
 import yaml
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, model_validator
 from metl.models.step import ArgumentType, Step
 
-from metl.models.utils import conform_env_key, load_yaml
+from metl.models.utils import parse_yaml, parse_yaml_file
 
 logger = logging.getLogger(__name__)
-
-
-class LoadAppManifestError(Exception):
-    pass
 
 
 class App(BaseModel):
@@ -76,14 +71,11 @@ class App(BaseModel):
     @classmethod
     def from_file(cls, path: str) -> "App":
         logger.info("Loading app manifest at: {}".format(path))
-        if manifest := load_yaml(path):
-            return cls(**manifest)
-        raise LoadAppManifestError(f"Invalid app manifest at {path}")
+        return cls(**parse_yaml_file(path))
 
     @classmethod
     def from_yaml(cls, yaml_content: str) -> "App":
-        manifest = yaml.load(yaml_content, Loader=yaml.FullLoader)
-        return cls(**manifest)
+        return cls(**parse_yaml(yaml_content))
 
     @model_validator(mode="after")
     def resolve_placeholders(self) -> "App":

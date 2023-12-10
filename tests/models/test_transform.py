@@ -137,7 +137,10 @@ class TestDiscoverTransforms:
 
         transforms = discover_transforms(repo_dir)
 
-        assert f"Skipping transform due to error: Invalid app manifest at {manifest_path}" in caplog.text
+        assert (
+            f"Skipping transform due to error: Could not load YAML file at path: {manifest_path}; Failed to parse YAML, expected a dictionary"
+            in caplog.text
+        )
         assert sorted(transforms.keys()) == sorted(["splitter", "download", "parser"])
 
     @pytest.mark.parametrize("required_key", ["name", "run-command"])
@@ -166,7 +169,10 @@ class TestDiscoverTransforms:
 
         transforms = discover_transforms(repo_dir)
 
-        assert "Skipping transform due to validation error" in caplog.text
+        assert (
+            f"Skipping transform due to error: Could not load YAML file at path: {repo_dir}/invalid-transform/manifest.yml; 2 validation errors for Transform"
+            in caplog.text
+        )
         assert sorted(transforms.keys()) == ["download", "parser", "splitter"]
 
 

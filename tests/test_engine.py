@@ -11,10 +11,6 @@ from metl.models.step import Step
 from metl.models.transform import Transform, TransformFailure, UnknownTransformError
 
 
-def parse_yaml(yaml_str):
-    return yaml.load(yaml_str, yaml.FullLoader)
-
-
 def app_file(app_yaml: str, tmpdir):
     path = os.path.join(tmpdir, "app.yml")
     with open(path, "w") as fd:
