@@ -5,7 +5,7 @@ from setuptools import setup, find_namespace_packages
 setup(
     name="mETL",
     description="A micro ETL library for local processing",
-    version="0.0.1",
+    version="0.9.0",
     url="https://github.com/sebmartin/mETL",
     packages=find_namespace_packages(exclude=["tests.*"]),
     package_data={"": ["*.yml"]},

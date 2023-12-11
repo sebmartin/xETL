@@ -21,6 +21,18 @@ def transform_file(transform_yaml: str, tmpdir):
     return path
 
 
+def transform_with_env(env: str) -> str:
+    return dedent(
+        """
+        name: simple-transform
+        type: transform
+        env-type: python
+        {env}
+        run-command: python run.py
+        """
+    ).format(env=dedent(env))
+
+
 @pytest.fixture
 def simple_transform_manifest_yml():
     return dedent(
@@ -29,9 +41,16 @@ def simple_transform_manifest_yml():
         type: transform
         env-type: python
         env:
-          foo: something
-          option-with-hyphens: something else
-          output: the result of the transform
+          FOO:
+            description: something
+            type: string
+            required: true
+          OPTION_WITH_HYPHENS:
+            description: something else
+          OUTPUT:
+            description: the result of the transform
+            type: string
+            required: true
         run-command: python run.py
         test-command: py.test
         """
@@ -184,9 +203,9 @@ class TestDeserialization:
         assert transform.path == os.path.dirname(simple_transform_manifest_path)
         assert transform.env_type == EnvType.PYTHON
         assert transform.env == {
-            "FOO": InputDetails(description="something"),
+            "FOO": InputDetails(description="something", type=str),
             "OPTION_WITH_HYPHENS": InputDetails(description="something else"),
-            "OUTPUT": InputDetails(description="the result of the transform"),
+            "OUTPUT": InputDetails(description="the result of the transform", type=str),
         }, "The env variable names should have been transformed to uppercase and hyphens replaced with underscores"
         assert transform.run_command == "python run.py"
         assert transform.test_command == "py.test"
@@ -214,8 +233,8 @@ class TestDeserialization:
             env_type: python
             path: /tmp
             env:
-              - foo
-              - bar
+              - FOO
+              - BAR
             run-command: python run.py
             """
         )
@@ -234,9 +253,9 @@ class TestDeserialization:
             env_type: python
             path: /tmp
             env:
-              foo: foo description
-              bar: bar description
-              not-a-string: 1
+              FOO: foo description
+              BAR: bar description
+              NOT-A-STRING: 1
             run-command: python run.py
             """
         )
@@ -256,8 +275,8 @@ class TestDeserialization:
             env_type: python
             path: /tmp
             env:
-              - foo
-              - bar
+              - FOO
+              - BAR
             run-command: python run.py
             """
         )
@@ -277,7 +296,7 @@ class TestDeserialization:
             path: /tmp
             env:
               - 1
-              - good
+              - GOOD
               - 2.2
               - 3-fine
             run-command: python run.py
@@ -295,13 +314,13 @@ class TestDeserialization:
             env_type: python
             path: /tmp
             env:
-              foo:
+              FOO:
                 description: foo description
                 required: false
                 default: booya
                 type: string
 
-              bar:
+              BAR:
                 description: bar description
                 required: true
                 type: boolean
@@ -323,10 +342,10 @@ class TestDeserialization:
             env_type: python
             path: /tmp
             env:
-              foo:
+              FOO:
                 description: foo description
                 optional: true
-              bar:
+              BAR:
                 description: bar description
                 optional: false
             run-command: python run.py
@@ -347,7 +366,7 @@ class TestDeserialization:
             env_type: python
             path: /tmp
             env:
-              foo:
+              FOO:
                 description: foo description
                 optional: true
                 required: true
@@ -383,6 +402,11 @@ class TestExecuteTransform:
         transform = Transform.from_file(simple_transform_manifest_path)
         step = Step(
             transform="simple-transform",
+            env={
+                "FOO": "bar",
+                "OPTION_WITH_HYPHENS": "baz",
+                "OUTPUT": "/tmp/data",
+            },
         )
 
         transform.execute(step, dryrun=False)
@@ -404,9 +428,9 @@ class TestExecuteTransform:
         step = Step(
             transform="simple-transform",
             env={
-                "foo": "bar",
-                "option-with-hyphens": "baz",
-                "output": "/tmp/data",
+                "FOO": "bar",
+                "OPTION_WITH_HYPHENS": "baz",
+                "OUTPUT": "/tmp/data",
             },
         )
 
@@ -419,23 +443,113 @@ class TestExecuteTransform:
             call.info("  env: FOO=bar, OPTION_WITH_HYPHENS=baz, OUTPUT=/tmp/data"),
         ]
 
-    def test_execute_transform_invalid_args(self, simple_transform_manifest_path, mock_logger):
-        transform = Transform.from_file(simple_transform_manifest_path)
+    @pytest.mark.parametrize(
+        "var_type, var_value",
+        [
+            ("str", "test"),
+            ("int", 1),
+            ("float", 1.23),
+            ("bool", True),
+        ],
+    )
+    def test_execute_transform_valid_env_value_and_type(self, var_type, var_value):
+        transform = Transform.from_yaml(
+            transform_with_env(
+                f"""
+                env:
+                  INPUT:
+                    type: {var_type}
+                """
+            ),
+            path="/tmp",
+        )
         step = Step(
             transform="simple-transform",
             env={
-                "foo": "bar",
-                "invalid-arg": "baz",
-                "another_unknown": "fooz",
-                "output": "/tmp/data",
+                "INPUT": var_value,
             },
         )
+        transform.execute(step, dryrun=True)
 
+    @pytest.mark.parametrize(
+        "var_type, var_value, message",
+        [
+            ("str", 1, "expected `str`, received `int`"),
+            ("str", False, "expected `str`, received `bool`"),
+            ("int", "one", "expected `int`, received `str`"),
+            ("int", "one", "expected `int`, received `str`"),
+            ("float", 1, "expected `float`, received `int`"),
+            ("float", "one", "expected `float`, received `str`"),
+            ("bool", 1, "expected `bool`, received `int`"),
+        ],
+    )
+    def test_execute_transform_invalid_env_value_types(self, var_type, var_value, message):
+        transform = Transform.from_yaml(
+            transform_with_env(
+                f"""
+                env:
+                  INPUT:
+                    type: {var_type}
+                """
+            ),
+            path="/tmp",
+        )
+        step = Step(
+            transform="simple-transform",
+            env={
+                "INPUT": var_value,
+            },
+        )
         with pytest.raises(ValueError) as exc:
-            transform.execute(step)
+            transform.execute(step, dryrun=True)
+        assert str(exc.value) == (f"Invalid env values for transform `simple-transform`:\n - INPUT: {message}")
+
+    @pytest.mark.parametrize("value", [1, 1.23, True, "string"])
+    def test_execute_transform_defaults_to_any_type(self, value, caplog):
+        caplog.set_level("INFO")
+        transform = Transform.from_yaml(
+            transform_with_env(
+                f"""
+                env:
+                  INPUT: description, default has no type validation
+                """
+            ),
+            path="/tmp",
+        )
+        step = Step(
+            transform="simple-transform",
+            env={
+                "input": value,
+            },
+        )
+        transform.execute(step, dryrun=True)
+        assert f"env: INPUT={str(value)}" in "\n".join(caplog.messages)
+
+    def test_execute_transform_valid_missiong_required_fields(self):
+        transform = Transform.from_yaml(
+            transform_with_env(
+                f"""
+                env:
+                  REQUIRED_INPUT:
+                    description: This field is required
+                    required: true
+                  NON_OPTIONAL_INPUT:
+                    description: This field uses optional instead of required
+                    optional: false
+                  OPTIONAL:
+                    description: This field is optional
+                    optional: true
+                """
+            ),
+            path="/tmp",
+        )
+        step = Step(
+            transform="simple-transform",
+        )
+        with pytest.raises(ValueError) as exc:
+            transform.execute(step, dryrun=True)
         assert str(exc.value) == (
-            "Invalid input for transform `simple-transform`: INVALID_ARG, ANOTHER_UNKNOWN. "
-            "Valid inputs are: FOO, OPTION_WITH_HYPHENS, OUTPUT"
+            "Missing required inputs for transform `simple-transform`: REQUIRED_INPUT, NON_OPTIONAL_INPUT"
         )
 
     def test_execute_transform_with_bash_command(self, bash_command_transform_manifest_path, mock_popen):

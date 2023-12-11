@@ -50,7 +50,7 @@ class InputDetails(BaseModel):
     description: str | None = None
     required: bool = True
     default: Any | None = None
-    type: Type[str | int | float | bool | Any] = Any
+    type: Type[str | int | float | bool] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -246,14 +246,34 @@ class Transform(BaseModel):
 
     def execute(self, step: Step, dryrun: bool = False) -> int:
         """
-        Execute the transform in the context of a given step.
+        Execute the transform with inputs from a given step.
         """
 
         if unknown_inputs := [input for input in step.env.keys() if conform_env_key(input) not in self.env]:
             raise ValueError(
-                f"Invalid input for transform `{self.name}`: {', '.join(unknown_inputs)}. "
+                f"Invalid input{'s' if len(unknown_inputs) > 1 else ''} for transform `{self.name}`: {', '.join(unknown_inputs)}. "
                 f"Valid inputs are: {', '.join(self.env.keys())}"
             )
+
+        if missing_inputs := [
+            input for input, details in self.env.items() if details.required and input not in step.env
+        ]:
+            raise ValueError(
+                f"Missing required input{'s' if len(missing_inputs) > 1 else ''} for transform `{self.name}`: {', '.join(missing_inputs)}"
+            )
+
+        if invalid_envs := [
+            (env_key, value, expected_type)
+            for env_key, value, expected_type in [
+                (env_key, value, self.env[conform_env_key(env_key)].type) for env_key, value in step.env.items()
+            ]
+            if expected_type not in (Any, None) and not isinstance(value, expected_type)
+        ]:
+            details = [
+                f" - {env_key}: expected `{expected_type.__name__}`, received `{type(value).__name__}`"
+                for env_key, value, expected_type in invalid_envs
+            ]
+            raise ValueError(f"Invalid env values for transform `{self.name}`:\n" + "\n".join(details))
 
         inputs_env = {conform_env_key(key): str(value) for (key, value) in step.env.items()}
         command = shlex.split(self.run_command)
@@ -265,8 +285,6 @@ class Transform(BaseModel):
             logger.info(f"  env: {', '.join(f'{k}={v}' for k,v in inputs_env.items())}")
             return 0
         else:
-            # TODO check the type for each env value in the transform definition
-            #   and raise if the value is invalid
             env = dict(os.environ)
             env.update(inputs_env)
             process = subprocess.Popen(
