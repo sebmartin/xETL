@@ -25,7 +25,7 @@ def app_manifest_simple(transforms_fixtures_path):
         f"""
         name: Simple app manifest
         data: /data
-        transforms_path: {transforms_fixtures_path}
+        transforms: {transforms_fixtures_path}
         jobs:
           my-job:
             - transform: download
@@ -48,7 +48,7 @@ def app_manifest_multiple_single_step_jobs(transforms_fixtures_path):
         f"""
         name: Multiple job manifest
         data: /data
-        transforms_path: {transforms_fixtures_path}
+        transforms: {transforms_fixtures_path}
         jobs:
           download:
             - transform: download
@@ -76,7 +76,7 @@ def app_manifest_single_multiple_step_job(transforms_fixtures_path):
         f"""
         name: Multiple job manifest
         data: /data
-        transforms_path: {transforms_fixtures_path}
+        transforms: {transforms_fixtures_path}
         jobs:
           download:
             - transform: download
@@ -103,7 +103,7 @@ def app_manifest_multiple_jobs_with_multiples(transforms_fixtures_path):
         f"""
         name: Multiple job manifest
         data: /data
-        transforms_path: {transforms_fixtures_path}
+        transforms: {transforms_fixtures_path}
         jobs:
           download-1:
             - name: download-1

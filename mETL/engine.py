@@ -37,15 +37,16 @@ def execute_app(manifest_path: str, skip_to: str | None = None, dryrun=False):
         else:
             logger.info("Parsed manifest for app: {}".format(app.name))
 
-        if transforms_repo_path := app.transforms_path:
-            logger.info(f"Discovering transforms at: {transforms_repo_path}")
-            transforms = discover_transforms(transforms_repo_path)
+        if transforms_repo_paths := app.transforms:
+            logger.info(f"Discovering transforms at paths: {transforms_repo_paths}")
+            transforms = discover_transforms(transforms_repo_paths)
             if not transforms:
-                logger.error("Could not find any transforms at {}".format(transforms_repo_path))
+                # TODO: test this
+                logger.error("Could not find any transforms at {}".format(transforms_repo_paths))
                 return
         else:
             logger.warning(
-                "The property `transforms_path` is not defined in the app manifest, no transforms will be available"
+                "The property `transforms` is not defined in the app manifest, no transforms will be available"
             )
             transforms = {}
         logger.info(f"Available transforms detected:")

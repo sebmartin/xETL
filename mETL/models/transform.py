@@ -329,15 +329,22 @@ class Transform(BaseModel):
             return process.returncode
 
 
-def discover_transforms(transforms_repo_path: str) -> dict[str, Transform]:
+def discover_transforms(transforms_repo_path: str | list[str]) -> dict[str, Transform]:
     """
     Walks a directory and loads all transforms found in subdirectories. Transforms are identified by the presence of a
     manifest.yml file in the directory. The manifest file must contain a `name` and `run-command` field.
     Returns a dictionary of transforms keyed by their name.
     """
-
-    transforms_paths = [path[0] for path in os.walk(transforms_repo_path) if "manifest.yml" in path[2]]
     transforms: dict[str, Transform] = {}
+
+    # handle multiple paths
+    if isinstance(transforms_repo_path, list):
+        for path in transforms_repo_path:
+            transforms.update(discover_transforms(path))
+        return transforms
+
+    # handle single path
+    transforms_paths = [path[0] for path in os.walk(transforms_repo_path) if "manifest.yml" in path[2]]
     for path in transforms_paths:
         if path.endswith("/tests"):
             continue  # ignore manifests in tests directories

@@ -133,7 +133,7 @@ class TestAppManifest(object):
         )
         engine.execute_app(app_file(manifest, str(tmpdir)))
         assert (
-            "The property `transforms_path` is not defined in the app manifest, no transforms will be available"
+            "The property `transforms` is not defined in the app manifest, no transforms will be available"
             in caplog.messages
         )
 
@@ -216,7 +216,7 @@ class TestEngineEndToEnd:
             name: test-app
             description: A test app to run end-to-end tests on
             data: {output_dir}
-            transforms_path: {transforms_repo_path}
+            transforms: {transforms_repo_path}
             jobs:
               main:
                 - name: print-env
@@ -320,7 +320,7 @@ class TestEngineEndToEnd:
             Loading app manifest at: {data_dir}/app.yml
             ╭──╴Executing app: test-app ╶╴╴╶ ╶
             │ Parsed manifest for app: test-app
-            │ Discovering transforms at: {data_dir}/transforms
+            │ Discovering transforms at paths: ['{data_dir}/transforms']
             │ Loading transform at: {data_dir}/transforms/print-env/manifest.yml
             │ Loading transform at: {data_dir}/transforms/filter/manifest.yml
             │ Available transforms detected:
@@ -385,7 +385,8 @@ class TestEngineEndToEnd:
             │   name: test-app
             │   description: A test app to run end-to-end tests on
             │   data: {data_dir}/output
-            │   transforms_path: {data_dir}/transforms
+            │   transforms:
+            │   - {data_dir}/transforms
             │   jobs:
             │     main:
             │     - name: print-env
@@ -401,7 +402,7 @@ class TestEngineEndToEnd:
             │         FILE: {data_dir}/output/env.txt
             │         PATTERN: -i input
             │         OUTPUT: {data_dir}/output/result.txt
-            │ Discovering transforms at: {data_dir}/transforms
+            │ Discovering transforms at paths: ['{data_dir}/transforms']
             │ Loading transform at: {data_dir}/transforms/print-env/manifest.yml
             │ Loading transform at: {data_dir}/transforms/filter/manifest.yml
             │ Available transforms detected:

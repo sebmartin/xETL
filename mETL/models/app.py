@@ -3,10 +3,10 @@ import os
 import re
 import tempfile
 from collections import OrderedDict
-from typing import Iterable
+from typing import Any, Iterable
 
 import yaml
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 from metl.models.step import ArgumentType, Step
 
 from metl.models.utils import parse_yaml, parse_yaml_file
@@ -56,9 +56,9 @@ class App(BaseModel):
     it's possible to override the app's env value by specifying a different value in a step's env.
     """
 
-    transforms_path: str | None = None
+    transforms: list[str] = []
     """
-    The path to the directory containing the transforms that are used in the app. This can be an absolute
+    A path or list of paths containing the transforms that are used in the app. Paths can be an absolute
     path or a path relative to the app manifest file. If the directory does not exist,
     """
 
@@ -81,6 +81,15 @@ class App(BaseModel):
     def resolve_placeholders(self) -> "App":
         resolve_placeholders(self)
         return self
+
+    @field_validator("transforms", mode="before")
+    @classmethod
+    def validate_transforms(cls, value: Any):
+        if isinstance(value, str):
+            value = [value]
+        elif not isinstance(value, list):
+            raise ValueError("transforms must be a string or a list of strings")
+        return value
 
 
 # Validation

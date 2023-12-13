@@ -40,6 +40,7 @@ def simple_transform_manifest_yml():
         name: simple-transform
         type: transform
         env-type: python
+        transforms: /something
         env:
           FOO:
             description: something
@@ -193,6 +194,18 @@ class TestDiscoverTransforms:
             in caplog.text
         )
         assert sorted(transforms.keys()) == ["download", "parser", "splitter"]
+
+    def test_discover_transforms_list_of_paths(self, transforms_fixtures_path, tmpdir):
+        repo_dir1 = str(tmpdir.mkdir("transforms1"))
+        repo_dir2 = str(tmpdir.mkdir("transforms2"))
+        copy_tree(transforms_fixtures_path + "/transforms/download", repo_dir1)
+        copy_tree(transforms_fixtures_path + "/transforms/parser", repo_dir2)
+
+        transforms = discover_transforms([repo_dir1, repo_dir2])
+
+        assert sorted(transforms.keys()) == sorted(
+            ["download", "parser"]
+        ), "Discovery should have found 1 transform per repo path"
 
 
 class TestDeserialization:
