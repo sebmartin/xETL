@@ -418,7 +418,6 @@ class TestExecuteTransform:
             call.info("All done."),
         ]
 
-        assert mock_popen.call_args[1]["shell"] is False, "A python transform should run with shell=False"
         assert mock_popen.call_args[1]["cwd"] == os.path.dirname(
             simple_transform_manifest_path
         ), "The cwd should have been set to the directory where the transform manifest is stored"
@@ -559,8 +558,7 @@ class TestExecuteTransform:
         transform.execute(step, dryrun=False)
 
         popen_args = mock_popen.call_args[0][0]
-        assert popen_args == ["ls", "-l", "~/"], "Command and argument whould be split"
-        assert mock_popen.call_args[1]["shell"] is True, "A bash transform should run with shell=True"
+        assert popen_args == ["/bin/bash", "-c", "ls -l ~/"], "Command and argument whould be split"
         assert mock_popen.call_args[1]["cwd"] == os.path.dirname(bash_command_transform_manifest_path)
 
     def test_execute_transform_with_complex_command(self, complex_command_transform_manifest_path, mock_popen):
@@ -571,11 +569,8 @@ class TestExecuteTransform:
 
         popen_args = mock_popen.call_args[0][0]
         assert popen_args == [
-            "echo",
-            "hello world",
-            "|",
-            "awk",
-            "{print $2}",
+            "/bin/bash",
+            "-c",
+            "echo \"hello world\" | awk '{print $2}'",
         ], "Words in strings should be kept intact and not split"
-        assert mock_popen.call_args[1]["shell"] is True, "A bash transform should run with shell=True"
         assert mock_popen.call_args[1]["cwd"] == os.path.dirname(complex_command_transform_manifest_path)

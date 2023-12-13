@@ -21,8 +21,7 @@ def main():
         exit(code=1)
 
     try:
-        with log_context(LogContext.APP, "Executing app: {}".format(manifest_path)):
-            execute_app(manifest_path, skip_to=args.skip_to, dryrun=args.dryrun)
+        execute_app(manifest_path, skip_to=args.skip_to, dryrun=args.dryrun)
     except TransformFailure as e:
         logger.fatal("Transform failed, terminating job.")
         exit(code=e.returncode)

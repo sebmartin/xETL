@@ -21,54 +21,55 @@ class NoAliasDumper(yaml.SafeDumper):
 
 def execute_app(manifest_path: str, skip_to: str | None = None, dryrun=False):
     app = App.from_file(manifest_path)
-    if dryrun:
-        logger.info("Manifest parsed as:")
-        for line in (
-            yaml.dump(
-                app.model_dump(exclude_unset=True),
-                Dumper=NoAliasDumper,
-                sort_keys=False,
+    with log_context(LogContext.APP, "Executing app: {}".format(app.name)):
+        if dryrun:
+            logger.info("Manifest parsed as:")
+            for line in (
+                yaml.dump(
+                    app.model_dump(exclude_unset=True),
+                    Dumper=NoAliasDumper,
+                    sort_keys=False,
+                )
+                .strip()
+                .split("\n")
+            ):
+                logger.info("  " + line)
+        else:
+            logger.info("Parsed manifest for app: {}".format(app.name))
+
+        if transforms_repo_path := app.transforms_path:
+            logger.info(f"Discovering transforms at: {transforms_repo_path}")
+            transforms = discover_transforms(transforms_repo_path)
+            if not transforms:
+                logger.error("Could not find any transforms at {}".format(transforms_repo_path))
+                return
+        else:
+            logger.warning(
+                "The property `transforms_path` is not defined in the app manifest, no transforms will be available"
             )
-            .strip()
-            .split("\n")
-        ):
-            logger.info("  " + line)
-    else:
-        logger.info("Parsed manifest for app: {}".format(app.name))
+            transforms = {}
+        logger.info(f"Available transforms detected:")
+        for t in transforms.values():
+            logger.info(f" - {t.name}")
 
-    if transforms_repo_path := app.transforms_path:
-        logger.info(f"Discovering transforms at: {transforms_repo_path}")
-        transforms = discover_transforms(transforms_repo_path)
-        if not transforms:
-            logger.error("Could not find any transforms at {}".format(transforms_repo_path))
-            return
-    else:
-        logger.warning(
-            "The property `transforms_path` is not defined in the app manifest, no transforms will be available"
-        )
-        transforms = {}
+        for job_name, steps in app.jobs.items():
+            with log_context(LogContext.JOB, f"Executing job: {job_name}"):
+                if skip_to:
+                    if job_name != skip_to and f"{job_name}." not in skip_to:
+                        logger.warning("Skipping this job...")
+                        continue
 
-    if dryrun:
-        logger.info(f"Available transforms detected: {', '.join(transform.name for transform in transforms.values())}")
+                    if "." in skip_to:
+                        while steps:
+                            if skip_to.endswith(f".{steps[0].name}"):
+                                break
+                            logger.warning(f"Skipping step: {steps[0].name or steps[0].transform}")
+                            del steps[0]
+                    skip_to = None
 
-    for job_name, steps in app.jobs.items():
-        with log_context(LogContext.JOB, f"Executing job: {job_name}"):
-            if skip_to:
-                if job_name != skip_to and f"{job_name}." not in skip_to:
-                    logger.warning("Skipping this job...")
-                    continue
+                execute_job_steps(job_name, steps, transforms, dryrun)
 
-                if "." in skip_to:
-                    while steps:
-                        if skip_to.endswith(f".{steps[0].name}"):
-                            break
-                        logger.warning(f"Skipping step: {steps[0].name or steps[0].transform}")
-                        del steps[0]
-                skip_to = None
-
-            execute_job_steps(job_name, steps, transforms, dryrun)
-
-    logger.info("Done! \\o/")
+        logger.info("Done! \\o/")
 
 
 def execute_job_steps(job_name: str, steps: list[Step], transforms: dict[str, Transform], dryrun: bool):

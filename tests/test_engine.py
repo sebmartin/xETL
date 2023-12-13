@@ -201,13 +201,16 @@ class TestAppManifest(object):
 
 
 class TestEngineEndToEnd:
-    def test_execute_app_dryrun(self, tmpdir):
-        output_dir = tmpdir.mkdir("output")
-        input_dir = tmpdir.mkdir("input")
-        input_dir.join("file1.txt").write_text("file1", encoding="utf-8")
-        input_dir.join("file2.txt").write_text("file2", encoding="utf-8")
+    @pytest.fixture
+    def transforms_repo_path(self, tmpdir):
+        return tmpdir.mkdir("transforms")
 
-        transforms_repo_path = tmpdir.mkdir("transforms")
+    @pytest.fixture
+    def output_dir(self, tmpdir):
+        return tmpdir.mkdir("output")
+
+    @pytest.fixture
+    def app_manifest(self, transforms_repo_path, output_dir, tmpdir):
         app = dedent(
             f"""
             name: test-app
@@ -216,62 +219,168 @@ class TestEngineEndToEnd:
             transforms_path: {transforms_repo_path}
             jobs:
               main:
-                - name: list
-                  transform: list-files
+                - name: print-env
+                  transform: print-env
                   env:
-                    PATH: {input_dir}
-                    OUTPUT: $data/files.txt
-                - name: cat
-                  transform: cat-files
+                    INPUT1: 100
+                    INPUT2: false
+                    TEMP_FILE: ${{tmp.file}}
+                    OUTPUT: $data/env.txt
+                - name: filter-env
+                  transform: filter
                   env:
-                    FILES: ${{previous.env.OUTPUT}}
-                    OUTPUT: $data/cat.txt
+                    FILE: ${{previous.env.OUTPUT}}
+                    PATTERN: -i input
+                    OUTPUT: $data/result.txt
             """
         )
-        (tmpdir / "app.yml").write_text(app, encoding="utf-8")
+        app_path = tmpdir / "app.yml"
+        (app_path).write_text(app, encoding="utf-8")
+        return app_path
 
-        list_files_transform = dedent(
-            """
-            name: list-files
-            description: List files in a directory
+    @pytest.fixture
+    def print_env_transform(self, transforms_repo_path):
+        print_env_transform = dedent(
+            f"""
+            name: print-env
+            description: Prints all env variables
             env-type: bash
             env:
-              PATH: Path to list files in
-              OUTPUT: File to write list of files to
-            run-command: ls -la $PATH > $OUTPUT
+              OUTPUT:
+                description: File to write env values to
+                type: string
+              TEMP_FILE:
+                description: File to write temp values to
+                type: string
+              INPUT1:
+                description: First input variable
+                type: int
+              INPUT2:
+                description: Second input variable
+                type: bool
+            run-command: |
+              echo "Temp values stored at $TEMP_FILE"
+              /usr/bin/env > $TEMP_FILE
+              ls "$TEMP_FILE"
+              cat $TEMP_FILE > $OUTPUT
             """
         )
-        (transforms_repo_path.mkdir("list-files") / "manifest.yml").write_text(list_files_transform, encoding="utf-8")
+        print_env_transform_path = transforms_repo_path.mkdir("print-env") / "manifest.yml"
+        (print_env_transform_path).write_text(print_env_transform, encoding="utf-8")
+        return print_env_transform_path
 
-        cat_files_transform = dedent(
+    @pytest.fixture
+    def filter_env_transform(self, transforms_repo_path):
+        filter_env_transform = dedent(
             """
-            name: cat-files
+            name: filter
             description: Concatenate files listed in an input file
             env-type: bash
             env:
-              FILES: File containing filenames to concatenate
-              OUTPUT: File to write concatenated files to
-            run-command: cat $FILES | xargs cat > $OUTPUT
+              FILE:
+                descriptiong: File to filter lines from
+                type: string
+              PATTERN:
+                description: Pattern to filter lines with
+                type: string
+              OUTPUT:
+                description: File to write concatenated files to
+                type: string
+            run-command: cat $FILE | grep $PATTERN | tee $OUTPUT
             """
         )
-        (transforms_repo_path.mkdir("cat-files") / "manifest.yml").write_text(cat_files_transform, encoding="utf-8")
+        filter_env_transform_path = transforms_repo_path.mkdir("filter") / "manifest.yml"
+        (filter_env_transform_path).write_text(filter_env_transform, encoding="utf-8")
+        return filter_env_transform_path
 
+    def test_execute_bash_app(self, app_manifest, print_env_transform, filter_env_transform, output_dir, tmpdir):
         result = subprocess.run(
             [
                 ".venv/bin/python",
                 "-m",
                 "metl",
-                # "--help"
+                str(app_manifest),
+            ],
+            capture_output=True,
+        )
+
+        # Test resulting files
+        assert os.path.exists(str(output_dir / "env.txt")), "The first step's file should have been created"
+        assert os.path.exists(str(output_dir / "result.txt")), "The final result file should have been created"
+        with open(str(output_dir / "result.txt"), "r") as fd:
+            assert fd.readlines() == ["INPUT1=100\n", "INPUT2=False\n"]
+
+        # Test output
+        if tmp_path_match := re.search(r"[^ ]*output/tmp/\w*", result.stderr.decode("utf-8")):
+            tmp_file = tmp_path_match.group(0)
+        else:
+            tmp_file = "/tmp"
+        expected_output = dedent(
+            """
+            Loading app manifest at: {data_dir}/app.yml
+            ╭──╴Executing app: test-app ╶╴╴╶ ╶
+            │ Parsed manifest for app: test-app
+            │ Discovering transforms at: {data_dir}/transforms
+            │ Loading transform at: {data_dir}/transforms/print-env/manifest.yml
+            │ Loading transform at: {data_dir}/transforms/filter/manifest.yml
+            │ Available transforms detected:
+            │  - print-env
+            │  - filter
+            ╔══╸Executing job: main ═╴╴╶ ╶
+            ║ Executing step 1 of 2
+            ║   name: print-env
+            ║   description: null
+            ║   transform: print-env
+            ║   env:
+            ║     INPUT1: 100
+            ║     INPUT2: false
+            ║     TEMP_FILE: {tmp_file}
+            ║     OUTPUT: {data_dir}/output/env.txt
+            ║   skip: false
+            ║┏━━╸Executing transform: print-env ━╴╴╶ ╶
+            ║┃2023-11-23 21:36:52.983┊ Temp values stored at {tmp_file}
+            ║┃2023-11-23 21:36:52.983┊ {tmp_file}
+            ║┗━━╸Return code: 0 ━╴╴╶ ╶
+            ║{space}
+            ║ Executing step 2 of 2
+            ║   name: filter-env
+            ║   description: null
+            ║   transform: filter
+            ║   env:
+            ║     FILE: {data_dir}/output/env.txt
+            ║     PATTERN: -i input
+            ║     OUTPUT: {data_dir}/output/result.txt
+            ║   skip: false
+            ║┏━━╸Executing transform: filter ━╴╴╶ ╶
+            ║┃2023-11-23 21:36:52.983┊ INPUT1=100
+            ║┃2023-11-23 21:36:52.983┊ INPUT2=False
+            ║┗━━╸Return code: 0 ━╴╴╶ ╶
+            │ Done! \\o/
+            """
+        ).format(data_dir=str(tmpdir), space=" ", tmp_file=tmp_file)
+        actual_result = result.stderr.decode("utf-8")  # TODO why is this stderr?
+        assert strip_dates(actual_result.strip()) == strip_dates(expected_output.strip())
+
+    def test_execute_bash_app_dryrun(self, app_manifest, print_env_transform, filter_env_transform, output_dir, tmpdir):
+        result = subprocess.run(
+            [
+                ".venv/bin/python",
+                "-m",
+                "metl",
                 str(tmpdir / "app.yml"),
                 "--dryrun",
             ],
             capture_output=True,
         )
 
+        if tmp_path_match := re.search(r"[^ ]*output/tmp/\w*", result.stderr.decode("utf-8")):
+            tmp_file = tmp_path_match.group(0)
+        else:
+            tmp_file = "/tmp"
         expected_output = dedent(
             """
-            ╭──╴Executing app: {data_dir}/app.yml ╶╴╴╶ ╶
-            │ Loading app manifest at: {data_dir}/app.yml
+            Loading app manifest at: {data_dir}/app.yml
+            ╭──╴Executing app: test-app ╶╴╴╶ ╶
             │ Manifest parsed as:
             │   name: test-app
             │   description: A test app to run end-to-end tests on
@@ -279,52 +388,60 @@ class TestEngineEndToEnd:
             │   transforms_path: {data_dir}/transforms
             │   jobs:
             │     main:
-            │     - name: list
-            │       transform: list-files
+            │     - name: print-env
+            │       transform: print-env
             │       env:
-            │         PATH: {data_dir}/input
-            │         OUTPUT: {data_dir}/output/files.txt
-            │     - name: cat
-            │       transform: cat-files
+            │         INPUT1: 100
+            │         INPUT2: false
+            │         TEMP_FILE: {tmp_file}
+            │         OUTPUT: {data_dir}/output/env.txt
+            │     - name: filter-env
+            │       transform: filter
             │       env:
-            │         FILES: {data_dir}/output/files.txt
-            │         OUTPUT: {data_dir}/output/cat.txt
+            │         FILE: {data_dir}/output/env.txt
+            │         PATTERN: -i input
+            │         OUTPUT: {data_dir}/output/result.txt
             │ Discovering transforms at: {data_dir}/transforms
-            │ Loading transform at: {data_dir}/transforms/list-files/manifest.yml
-            │ Loading transform at: {data_dir}/transforms/cat-files/manifest.yml
-            │ Available transforms detected: list-files, cat-files
+            │ Loading transform at: {data_dir}/transforms/print-env/manifest.yml
+            │ Loading transform at: {data_dir}/transforms/filter/manifest.yml
+            │ Available transforms detected:
+            │  - print-env
+            │  - filter
             ╔══╸Executing job: main ═╴╴╶ ╶
             ║ Executing step 1 of 2
-            ║   name: list
+            ║   name: print-env
             ║   description: null
-            ║   transform: list-files
+            ║   transform: print-env
             ║   env:
-            ║     PATH: {data_dir}/input
-            ║     OUTPUT: {data_dir}/output/files.txt
+            ║     INPUT1: 100
+            ║     INPUT2: false
+            ║     TEMP_FILE: {tmp_file}
+            ║     OUTPUT: {data_dir}/output/env.txt
             ║   skip: false
-            ║┏━━╸Executing transform: list-files ━╴╴╶ ╶
-            ║┃2023-11-23 21:36:52.982┊ DRYRUN: Would execute with:
-            ║┃2023-11-23 21:36:52.982┊   command: ['ls', '-la', '$PATH', '>', '$OUTPUT']
-            ║┃2023-11-23 21:36:52.982┊   cwd: {data_dir}/transforms/list-files
-            ║┃2023-11-23 21:36:52.982┊   env: PATH={data_dir}/input, OUTPUT={data_dir}/output/files.txt
+            ║┏━━╸Executing transform: print-env ━╴╴╶ ╶
+            ║┃2023-12-12 21:46:35.601┊ DRYRUN: Would execute with:
+            ║┃2023-12-12 21:46:35.601┊   command: ['/bin/bash', '-c', 'echo "Temp values stored at $TEMP_FILE"\\n/usr/bin/env > $TEMP_FILE\\nls "$TEMP_FILE"\\ncat $TEMP_FILE > $OUTPUT\\n']
+            ║┃2023-12-12 21:46:35.601┊   cwd: {data_dir}/transforms/print-env
+            ║┃2023-12-12 21:46:35.601┊   env: INPUT1=100, INPUT2=False, TEMP_FILE={tmp_file}, OUTPUT={data_dir}/output/env.txt
             ║┗━━╸Return code: 0 ━╴╴╶ ╶
             ║{space}
             ║ Executing step 2 of 2
-            ║   name: cat
+            ║   name: filter-env
             ║   description: null
-            ║   transform: cat-files
+            ║   transform: filter
             ║   env:
-            ║     FILES: {data_dir}/output/files.txt
-            ║     OUTPUT: {data_dir}/output/cat.txt
+            ║     FILE: {data_dir}/output/env.txt
+            ║     PATTERN: -i input
+            ║     OUTPUT: {data_dir}/output/result.txt
             ║   skip: false
-            ║┏━━╸Executing transform: cat-files ━╴╴╶ ╶
-            ║┃2023-11-23 21:36:52.983┊ DRYRUN: Would execute with:
-            ║┃2023-11-23 21:36:52.983┊   command: ['cat', '$FILES', '|', 'xargs', 'cat', '>', '$OUTPUT']
-            ║┃2023-11-23 21:36:52.983┊   cwd: {data_dir}/transforms/cat-files
-            ║┃2023-11-23 21:36:52.983┊   env: FILES={data_dir}/output/files.txt, OUTPUT={data_dir}/output/cat.txt
+            ║┏━━╸Executing transform: filter ━╴╴╶ ╶
+            ║┃2023-12-12 21:46:35.602┊ DRYRUN: Would execute with:
+            ║┃2023-12-12 21:46:35.603┊   command: ['/bin/bash', '-c', 'cat $FILE | grep $PATTERN | tee $OUTPUT']
+            ║┃2023-12-12 21:46:35.603┊   cwd: {data_dir}/transforms/filter
+            ║┃2023-12-12 21:46:35.603┊   env: FILE={data_dir}/output/env.txt, PATTERN=-i input, OUTPUT={data_dir}/output/result.txt
             ║┗━━╸Return code: 0 ━╴╴╶ ╶
             │ Done! \\o/
             """
-        ).format(data_dir=str(tmpdir), space=" ")
+        ).format(data_dir=str(tmpdir), space=" ", tmp_file=tmp_file)
         actual_result = result.stderr.decode("utf-8")
         assert strip_dates(actual_result.strip()) == strip_dates(expected_output.strip())

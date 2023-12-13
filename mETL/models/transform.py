@@ -276,7 +276,13 @@ class Transform(BaseModel):
             raise ValueError(f"Invalid env values for transform `{self.name}`:\n" + "\n".join(details))
 
         inputs_env = {conform_env_key(key): str(value) for (key, value) in step.env.items()}
-        command = shlex.split(self.run_command)
+
+        if self.env_type == EnvType.PYTHON:
+            command = shlex.split(self.run_command)
+        elif self.env_type == EnvType.BASH:
+            command = ["/bin/bash", "-c", self.run_command]
+        else:
+            raise NotImplementedError(f"Unsupported env type: {self.env_type}")
 
         if dryrun:
             logger.info("DRYRUN: Would execute with:")
@@ -294,7 +300,6 @@ class Transform(BaseModel):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                shell=self.env_type == EnvType.BASH,
             )
             assert process.stdout is not None, "Process should have been opened with stdout=PIPE"
             assert process.stderr is not None, "Process should have been opened with stderr=PIPE"
