@@ -5,7 +5,6 @@ import shlex
 import subprocess
 from typing import Any, Type
 from pydantic import BaseModel, ValidationError, field_validator, model_validator
-import yaml
 from metl.models.step import Step
 
 from metl.models.utils import (
@@ -37,13 +36,6 @@ class EnvType(Enum):
 
     PYTHON = "python"
     BASH = "bash"
-
-    @staticmethod
-    def _yaml_representer(dumper: yaml.Dumper, data):
-        return dumper.represent_str(data.value)
-
-
-yaml.add_representer(EnvType, EnvType._yaml_representer)
 
 
 class InputDetails(BaseModel):
@@ -248,6 +240,7 @@ class Transform(BaseModel):
         """
 
         if unknown_inputs := [input for input in step.env.keys() if conform_env_key(input) not in self.env]:
+            # TODO: test this
             raise ValueError(
                 f"Invalid input{'s' if len(unknown_inputs) > 1 else ''} for transform `{self.name}`: {', '.join(unknown_inputs)}. "
                 f"Valid inputs are: {', '.join(self.env.keys())}"
@@ -275,12 +268,11 @@ class Transform(BaseModel):
 
         inputs_env = {conform_env_key(key): str(value) for (key, value) in step.env.items()}
 
-        if self.env_type == EnvType.PYTHON:
-            command = shlex.split(self.run_command)
-        elif self.env_type == EnvType.BASH:
-            command = ["/bin/bash", "-c", self.run_command]
-        else:
-            raise NotImplementedError(f"Unsupported env type: {self.env_type}")
+        match self.env_type:
+            case EnvType.PYTHON:
+                command = shlex.split(self.run_command)
+            case EnvType.BASH:
+                command = ["/bin/bash", "-c", self.run_command]
 
         if dryrun:
             logger.info("DRYRUN: Would execute with:")
@@ -310,7 +302,7 @@ class Transform(BaseModel):
                         logger.info(output.strip())
             finally:
                 if process.poll() is None:
-                    process.kill()
+                    process.kill()  # TODO: test this
                 if process.stdin:
                     process.stdin.close()
                 if process.stdout:
@@ -346,10 +338,10 @@ def discover_transforms(transforms_repo_path: str | list[str]) -> dict[str, Tran
             transform = Transform.from_file(f"{path}/manifest.yml")
             transforms[transform.name] = transform
         except ValidationError as e:
-            logger.warning(f"Skipping transform due to validation error: {e}")
+            logger.warning(f"Skipping transform due to validation error: {e}")  # TODO: test this
         except (ManifestLoadError, InvalidManifestError) as e:
-            logger.warning(f"Skipping transform due to error: {str(e)}")
+            logger.warning(f"Skipping transform due to error: {str(e)}")  # TODO: test this
         except Exception as e:
-            logger.warning(f"Skipping transform due to unexpected error: {e}")
+            logger.warning(f"Skipping transform due to unexpected error: {e}")  # TODO: test this
 
     return transforms

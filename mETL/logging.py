@@ -82,8 +82,6 @@ class NestedFormatter(logging.Formatter):
     def pop_context(self):
         if self.stack:
             self.set_context(*self.stack.pop())
-        else:
-            self.set_context(LogContext.NONE, LogLineType.NORMAL)
 
     def set_context(self, context: LogContext, line_type: LogLineType = LogLineType.NORMAL):
         self.context = context

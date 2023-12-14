@@ -532,3 +532,19 @@ class TestEngineEndToEnd:
         ).format(data_dir=str(tmpdir), space=" ", error_code=expected_return_code)
         actual_result = result.stdout.decode("utf-8")
         assert strip_dates(actual_result.strip()) == strip_dates(expected_output.strip())
+
+    def test_invalid_app_yaml(self, tmpdir):
+        result = subprocess.run(
+            [
+                ".venv/bin/python",
+                "-m",
+                "metl",
+                str(tmpdir / "app.yml"),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+
+        actual_output = result.stdout.decode("utf-8")
+        assert result.returncode == 1, actual_output
+        assert f"File does not exist: {tmpdir}/app.yml" in actual_output

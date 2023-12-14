@@ -87,8 +87,6 @@ class App(BaseModel):
     def validate_transforms(cls, value: Any):
         if isinstance(value, str):
             value = [value]
-        elif not isinstance(value, list):
-            raise ValueError("transforms must be a string or a list of strings")
         return value
 
 
