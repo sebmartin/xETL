@@ -240,10 +240,9 @@ class Transform(BaseModel):
         """
 
         if unknown_inputs := [input for input in step.env.keys() if conform_env_key(input) not in self.env]:
-            # TODO: test this
             raise ValueError(
-                f"Invalid input{'s' if len(unknown_inputs) > 1 else ''} for transform `{self.name}`: {', '.join(unknown_inputs)}. "
-                f"Valid inputs are: {', '.join(self.env.keys())}"
+                f"Invalid env variable{'s' if len(unknown_inputs) > 1 else ''} for transform `{self.name}`: {', '.join(unknown_inputs)}. "
+                f"Valid names are: {', '.join(self.env.keys())}"
             )
 
         if missing_inputs := [
@@ -329,10 +328,11 @@ def discover_transforms(transforms_repo_path: str | list[str]) -> dict[str, Tran
     # handle single path
     transforms_paths = [path[0] for path in os.walk(transforms_repo_path) if "manifest.yml" in path[2]]
     for path in transforms_paths:
+        # ignore manifests in tests directories
         if path.endswith("/tests"):
-            continue  # ignore manifests in tests directories
+            continue
         if "/tests/" in path and path.split("/tests/")[0] in transforms_paths:
-            continue  # ignore manifests in tests directories
+            continue
 
         try:
             transform = Transform.from_file(f"{path}/manifest.yml")

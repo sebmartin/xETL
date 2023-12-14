@@ -537,6 +537,32 @@ class TestExecuteTransform:
         transform.execute(step, dryrun=True)
         assert f"env: INPUT={str(value)}" in "\n".join(caplog.messages)
 
+    def test_execute_transform_unknown_env_variable(self):
+        transform = Transform.from_yaml(
+            transform_with_env(
+                f"""
+                env:
+                  INPUT1: description, default has no type validation
+                  INPUT2: description, default has no type validation
+                """
+            ),
+            path="/tmp",
+        )
+        step = Step(
+            transform="simple-transform",
+            env={
+                "INPUT1": "value",
+                "INPUT2": "value",
+                "UNKNOWN1": "value",
+                "UNKNOWN2": "value",
+            },
+        )
+        with pytest.raises(ValueError) as exc:
+            transform.execute(step, dryrun=True)
+        assert str(exc.value) == (
+            "Invalid env variables for transform `simple-transform`: UNKNOWN1, UNKNOWN2. Valid names are: INPUT1, INPUT2"
+        )
+
     def test_execute_transform_valid_missiong_required_fields(self):
         transform = Transform.from_yaml(
             transform_with_env(
