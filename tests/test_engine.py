@@ -137,6 +137,19 @@ class TestAppManifest(object):
             in caplog.messages
         )
 
+    @mock.patch("metl.engine.execute_job_steps")
+    def test_execute_app_no_transforms_found(self, execute_job_steps, tmpdir, caplog):
+        manifest = dedent(
+            """
+            name: Job without manifests
+            data: /data
+            transforms: /tmp/does-not-exist
+            jobs: {}
+            """
+        )
+        engine.execute_app(app_file(manifest, str(tmpdir)))
+        assert "Could not find any transforms at paths ['/tmp/does-not-exist']" in caplog.messages
+
     @mock.patch("metl.models.transform.Transform.execute", return_value=127)
     def test_execute_app_with_unknown_transform(
         self, transform_execute, app_manifest_simple, transforms_fixtures_path, tmpdir
@@ -301,8 +314,12 @@ class TestEngineEndToEnd:
                 "metl",
                 str(app_manifest),
             ],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
         )
+
+        # Print the output if it wasn't successful
+        assert result.returncode == 0, result.stdout.decode("utf-8")
 
         # Test resulting files
         assert os.path.exists(str(output_dir / "env.txt")), "The first step's file should have been created"
@@ -311,7 +328,7 @@ class TestEngineEndToEnd:
             assert fd.readlines() == ["INPUT1=100\n", "INPUT2=False\n"]
 
         # Test output
-        if tmp_path_match := re.search(r"[^ ]*output/tmp/\w*", result.stderr.decode("utf-8")):
+        if tmp_path_match := re.search(r"[^ ]*output/tmp/\w*", result.stdout.decode("utf-8")):
             tmp_file = tmp_path_match.group(0)
         else:
             tmp_file = "/tmp"
@@ -358,7 +375,7 @@ class TestEngineEndToEnd:
             │ Done! \\o/
             """
         ).format(data_dir=str(tmpdir), space=" ", tmp_file=tmp_file)
-        actual_result = result.stderr.decode("utf-8")  # TODO why is this stderr?
+        actual_result = result.stdout.decode("utf-8")
         assert strip_dates(actual_result.strip()) == strip_dates(expected_output.strip())
 
     def test_execute_bash_app_dryrun(self, app_manifest, print_env_transform, filter_env_transform, output_dir, tmpdir):
@@ -370,10 +387,14 @@ class TestEngineEndToEnd:
                 str(tmpdir / "app.yml"),
                 "--dryrun",
             ],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
         )
 
-        if tmp_path_match := re.search(r"[^ ]*output/tmp/\w*", result.stderr.decode("utf-8")):
+        # Print the output if it wasn't successful
+        assert result.returncode == 0, result.stdout.decode("utf-8")
+
+        if tmp_path_match := re.search(r"[^ ]*output/tmp/\w*", result.stdout.decode("utf-8")):
             tmp_file = tmp_path_match.group(0)
         else:
             tmp_file = "/tmp"
@@ -444,5 +465,70 @@ class TestEngineEndToEnd:
             │ Done! \\o/
             """
         ).format(data_dir=str(tmpdir), space=" ", tmp_file=tmp_file)
-        actual_result = result.stderr.decode("utf-8")
+        actual_result = result.stdout.decode("utf-8")
+        assert strip_dates(actual_result.strip()) == strip_dates(expected_output.strip())
+
+    def test_execute_with_failure(self, output_dir, transforms_repo_path, tmpdir):
+        app = dedent(
+            f"""
+            name: test-app
+            description: A test app to run end-to-end tests on
+            data: {output_dir}
+            transforms: {transforms_repo_path}
+            jobs:
+              main:
+                - name: fail
+                  transform: fail
+            """
+        )
+        app_path = tmpdir / "app.yml"
+        (app_path).write_text(app, encoding="utf-8")
+
+        filter_env_transform = dedent(
+            """
+            name: fail
+            description: This is a transform that always fails
+            env-type: bash
+            run-command: cat /file/that/doesnt/exist
+            """
+        )
+        filter_env_transform_path = transforms_repo_path.mkdir("filter") / "manifest.yml"
+        (filter_env_transform_path).write_text(filter_env_transform, encoding="utf-8")
+
+        result = subprocess.run(
+            [
+                ".venv/bin/python",
+                "-m",
+                "metl",
+                str(tmpdir / "app.yml"),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        expected_return_code = 1
+        assert result.returncode == expected_return_code, result.stdout.decode("utf-8")
+
+        expected_output = dedent(
+            """
+            Loading app manifest at: {data_dir}/app.yml
+            ╭──╴Executing app: test-app ╶╴╴╶ ╶
+            │ Parsed manifest for app: test-app
+            │ Discovering transforms at paths: ['{data_dir}/transforms']
+            │ Loading transform at: {data_dir}/transforms/filter/manifest.yml
+            │ Available transforms detected:
+            │  - fail
+            ╔══╸Executing job: main ═╴╴╶ ╶
+            ║ Executing step 1 of 1
+            ║   name: fail
+            ║   description: null
+            ║   transform: fail
+            ║   env: {{}}
+            ║   skip: false
+            ║┏━━╸Executing transform: fail ━╴╴╶ ╶
+            ║┃2023-11-23 21:36:52.983┊ cat: /file/that/doesnt/exist: No such file or directory
+            ║┗━━╸Return code: {error_code} ━╴╴╶ ╶
+            Transform failed, terminating job.
+            """
+        ).format(data_dir=str(tmpdir), space=" ", error_code=expected_return_code)
+        actual_result = result.stdout.decode("utf-8")
         assert strip_dates(actual_result.strip()) == strip_dates(expected_output.strip())

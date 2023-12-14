@@ -64,9 +64,7 @@ class InputDetails(BaseModel):
         return data
 
     @field_validator("type", mode="before")
-    def valid_type(cls, value: Any) -> Type[str | int | float]:
-        if value in (str, int, float, bool):
-            return value
+    def valid_type(cls, value: Any) -> Any:
         if isinstance(value, str):
             mapping = {
                 "str": str,
@@ -80,7 +78,7 @@ class InputDetails(BaseModel):
             }
             if type_ := mapping.get(value.lower()):
                 return type_
-        raise ValueError(f"Invalid input type: {value}")  # TODO: test this
+        return value
 
 
 class Transform(BaseModel):
@@ -171,7 +169,7 @@ class Transform(BaseModel):
                         required: true
                         type: string
             ```
-    """  # TODO: implement and test
+    """
 
     run_command: str
     """
@@ -298,11 +296,10 @@ class Transform(BaseModel):
                 cwd=self.path,
                 env=env,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
             )
             assert process.stdout is not None, "Process should have been opened with stdout=PIPE"
-            assert process.stderr is not None, "Process should have been opened with stderr=PIPE"
 
             try:
                 while True:
@@ -311,12 +308,6 @@ class Transform(BaseModel):
                         break
                     if output:
                         logger.info(output.strip())
-                if lines := process.stderr.readlines():
-                    # TODO try to figure out how to get stderr and stdout in the correct order
-                    # use the thread trick with StringIO?
-                    for line in lines:
-                        if line:
-                            logger.error(line.rstrip())
             finally:
                 if process.poll() is None:
                     process.kill()

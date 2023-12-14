@@ -41,8 +41,7 @@ def execute_app(manifest_path: str, skip_to: str | None = None, dryrun=False):
             logger.info(f"Discovering transforms at paths: {transforms_repo_paths}")
             transforms = discover_transforms(transforms_repo_paths)
             if not transforms:
-                # TODO: test this
-                logger.error("Could not find any transforms at {}".format(transforms_repo_paths))
+                logger.error("Could not find any transforms at paths {}".format(transforms_repo_paths))
                 return
         else:
             logger.warning(
