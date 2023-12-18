@@ -1,9 +1,10 @@
-from typing import Any
+from typing import Any, TypeAlias
 from pydantic import BaseModel, field_validator
 
 from metl.models.utils import conform_env_key
 
-ArgumentType = str | int | float | bool
+# TODO: support lists and dicts?
+EnvVariableType: TypeAlias = str | int | float | bool | None
 
 
 class Step(BaseModel):
@@ -14,6 +15,7 @@ class Step(BaseModel):
 
     name: str | None = None
     """An optional name for the step. This can be any string value."""
+    # TODO: add tests for invalid names (only characters, numbers, dashes, and underscores allowed)
 
     description: str | None = None
     """
@@ -30,7 +32,7 @@ class Step(BaseModel):
     discovery process.
     """
 
-    env: dict[str, ArgumentType] = {}
+    env: dict[str, EnvVariableType] = {}
     """
     Set of ENV variables that will be set when executing the transform. The keys in this dictionary must
     match the names of the `env` keys defined (and described) in the transform's manifest.

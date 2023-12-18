@@ -3,9 +3,9 @@ import logging
 import os
 import shlex
 import subprocess
-from typing import Any, Type
+from typing import Any, Type, TypeAlias
 from pydantic import BaseModel, ValidationError, field_validator, model_validator
-from metl.models.step import Step
+from metl.models.step import EnvVariableType, Step
 
 from metl.models.utils import (
     InvalidManifestError,
@@ -42,7 +42,7 @@ class InputDetails(BaseModel):
     description: str | None = None
     required: bool = True
     default: Any | None = None
-    type: Type[str | int | float | bool] | None = None
+    type: Type[EnvVariableType] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -240,8 +240,8 @@ class Transform(BaseModel):
         """
 
         if unknown_inputs := [input for input in step.env.keys() if conform_env_key(input) not in self.env]:
-            raise ValueError(
-                f"Invalid env variable{'s' if len(unknown_inputs) > 1 else ''} for transform `{self.name}`: {', '.join(unknown_inputs)}. "
+            logger.warning(
+                f"Ignoring unknown env variable{'s' if len(unknown_inputs) > 1 else ''} for transform `{self.name}`: {', '.join(unknown_inputs)}. "
                 f"Valid names are: {', '.join(self.env.keys())}"
             )
 
@@ -255,7 +255,9 @@ class Transform(BaseModel):
         if invalid_envs := [
             (env_key, value, expected_type)
             for env_key, value, expected_type in [
-                (env_key, value, self.env[conform_env_key(env_key)].type) for env_key, value in step.env.items()
+                (env_key, value, self.env[conform_env_key(env_key)].type)
+                for env_key, value in step.env.items()
+                if conform_env_key(env_key) in self.env
             ]
             if expected_type not in (Any, None) and not isinstance(value, expected_type)
         ]:

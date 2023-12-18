@@ -537,7 +537,8 @@ class TestExecuteTransform:
         transform.execute(step, dryrun=True)
         assert f"env: INPUT={str(value)}" in "\n".join(caplog.messages)
 
-    def test_execute_transform_unknown_env_variable(self):
+    def test_execute_transform_unknown_env_variable(self, caplog):
+        caplog.set_level("INFO")
         transform = Transform.from_yaml(
             transform_with_env(
                 f"""
@@ -557,13 +558,14 @@ class TestExecuteTransform:
                 "UNKNOWN2": "value",
             },
         )
-        with pytest.raises(ValueError) as exc:
-            transform.execute(step, dryrun=True)
-        assert str(exc.value) == (
-            "Invalid env variables for transform `simple-transform`: UNKNOWN1, UNKNOWN2. Valid names are: INPUT1, INPUT2"
-        )
+        transform.execute(step, dryrun=True)
 
-    def test_execute_transform_valid_missiong_required_fields(self):
+        assert (
+            "Ignoring unknown env variables for transform `simple-transform`: UNKNOWN1, UNKNOWN2. Valid names are: INPUT1, INPUT2"
+            in caplog.messages
+        ), "\n".join(caplog.messages)
+
+    def test_execute_transform_valid_missing_required_fields(self):
         transform = Transform.from_yaml(
             transform_with_env(
                 f"""

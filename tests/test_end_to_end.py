@@ -27,6 +27,8 @@ def app_manifest(transforms_repo_path, output_dir, tmpdir):
         description: A test app to run end-to-end tests on
         data: {output_dir}
         transforms: {transforms_repo_path}
+        env:
+          APP_VAR: app-var-value
         jobs:
           main:
           - name: print-env
@@ -39,7 +41,7 @@ def app_manifest(transforms_repo_path, output_dir, tmpdir):
           - name: filter-env
             transform: filter
             env:
-              FILE: ${{previous.env.OUTPUT}}
+              FILE: ${{previous.OUTPUT}}
               PATTERN: -i input
               OUTPUT: $data/result.txt
         """
@@ -149,12 +151,14 @@ def test_execute_bash_app(app_manifest, print_env_transform, filter_env_transfor
         ║   description: null
         ║   transform: print-env
         ║   env:
+        ║     APP_VAR: app-var-value
         ║     INPUT1: 100
         ║     INPUT2: false
         ║     TEMP_FILE: {tmp_file}
         ║     OUTPUT: {data_dir}/output/env.txt
         ║   skip: false
         ║┏━━╸Executing transform: print-env ━╴╴╶ ╶
+        ║┃2023-11-23 21:36:52.983┊ WARNING Ignoring unknown env variable for transform `print-env`: APP_VAR. Valid names are: OUTPUT, TEMP_FILE, INPUT1, INPUT2
         ║┃2023-11-23 21:36:52.983┊ Temp values stored at {tmp_file}
         ║┃2023-11-23 21:36:52.983┊ {tmp_file}
         ║┗━━╸Return code: 0 ━╴╴╶ ╶
@@ -164,11 +168,13 @@ def test_execute_bash_app(app_manifest, print_env_transform, filter_env_transfor
         ║   description: null
         ║   transform: filter
         ║   env:
+        ║     APP_VAR: app-var-value
         ║     FILE: {data_dir}/output/env.txt
         ║     PATTERN: -i input
         ║     OUTPUT: {data_dir}/output/result.txt
         ║   skip: false
         ║┏━━╸Executing transform: filter ━╴╴╶ ╶
+        ║┃2023-11-23 21:36:52.983┊ WARNING Ignoring unknown env variable for transform `filter`: APP_VAR. Valid names are: FILE, PATTERN, OUTPUT
         ║┃2023-11-23 21:36:52.983┊ INPUT1=100
         ║┃2023-11-23 21:36:52.983┊ INPUT2=False
         ║┗━━╸Return code: 0 ━╴╴╶ ╶
@@ -207,6 +213,8 @@ def test_execute_bash_app_dryrun(app_manifest, print_env_transform, filter_env_t
         │   name: test-app
         │   description: A test app to run end-to-end tests on
         │   data: {data_dir}/output
+        │   env:
+        │     APP_VAR: app-var-value
         │   transforms:
         │   - {data_dir}/transforms
         │   jobs:
@@ -214,6 +222,7 @@ def test_execute_bash_app_dryrun(app_manifest, print_env_transform, filter_env_t
         │     - name: print-env
         │       transform: print-env
         │       env:
+        │         APP_VAR: app-var-value
         │         INPUT1: 100
         │         INPUT2: false
         │         TEMP_FILE: {tmp_file}
@@ -221,6 +230,7 @@ def test_execute_bash_app_dryrun(app_manifest, print_env_transform, filter_env_t
         │     - name: filter-env
         │       transform: filter
         │       env:
+        │         APP_VAR: app-var-value
         │         FILE: {data_dir}/output/env.txt
         │         PATTERN: -i input
         │         OUTPUT: {data_dir}/output/result.txt
@@ -236,16 +246,18 @@ def test_execute_bash_app_dryrun(app_manifest, print_env_transform, filter_env_t
         ║   description: null
         ║   transform: print-env
         ║   env:
+        ║     APP_VAR: app-var-value
         ║     INPUT1: 100
         ║     INPUT2: false
         ║     TEMP_FILE: {tmp_file}
         ║     OUTPUT: {data_dir}/output/env.txt
         ║   skip: false
         ║┏━━╸Executing transform: print-env ━╴╴╶ ╶
+        ║┃2023-11-23 21:36:52.983┊ WARNING Ignoring unknown env variable for transform `print-env`: APP_VAR. Valid names are: OUTPUT, TEMP_FILE, INPUT1, INPUT2
         ║┃2023-12-12 21:46:35.601┊ DRYRUN: Would execute with:
         ║┃2023-12-12 21:46:35.601┊   command: ['/bin/bash', '-c', 'echo "Temp values stored at $TEMP_FILE"\\n/usr/bin/env > $TEMP_FILE\\nls "$TEMP_FILE"\\ncat $TEMP_FILE > $OUTPUT\\n']
         ║┃2023-12-12 21:46:35.601┊   cwd: {data_dir}/transforms/print-env
-        ║┃2023-12-12 21:46:35.601┊   env: INPUT1=100, INPUT2=False, TEMP_FILE={tmp_file}, OUTPUT={data_dir}/output/env.txt
+        ║┃2023-12-12 21:46:35.601┊   env: APP_VAR=app-var-value, INPUT1=100, INPUT2=False, TEMP_FILE={tmp_file}, OUTPUT={data_dir}/output/env.txt
         ║┗━━╸Return code: 0 ━╴╴╶ ╶
         ║{space}
         ║ Executing step 2 of 2
@@ -253,15 +265,17 @@ def test_execute_bash_app_dryrun(app_manifest, print_env_transform, filter_env_t
         ║   description: null
         ║   transform: filter
         ║   env:
+        ║     APP_VAR: app-var-value
         ║     FILE: {data_dir}/output/env.txt
         ║     PATTERN: -i input
         ║     OUTPUT: {data_dir}/output/result.txt
         ║   skip: false
         ║┏━━╸Executing transform: filter ━╴╴╶ ╶
+        ║┃2023-11-23 21:36:52.983┊ WARNING Ignoring unknown env variable for transform `filter`: APP_VAR. Valid names are: FILE, PATTERN, OUTPUT
         ║┃2023-12-12 21:46:35.602┊ DRYRUN: Would execute with:
         ║┃2023-12-12 21:46:35.603┊   command: ['/bin/bash', '-c', 'cat $FILE | grep $PATTERN | tee $OUTPUT']
         ║┃2023-12-12 21:46:35.603┊   cwd: {data_dir}/transforms/filter
-        ║┃2023-12-12 21:46:35.603┊   env: FILE={data_dir}/output/env.txt, PATTERN=-i input, OUTPUT={data_dir}/output/result.txt
+        ║┃2023-12-12 21:46:35.603┊   env: APP_VAR=app-var-value, FILE={data_dir}/output/env.txt, PATTERN=-i input, OUTPUT={data_dir}/output/result.txt
         ║┗━━╸Return code: 0 ━╴╴╶ ╶
         │ Done! \\o/
         """

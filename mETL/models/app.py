@@ -3,11 +3,11 @@ import os
 import re
 import tempfile
 from collections import OrderedDict
-from typing import Any, Iterable
+from typing import Any, Iterable, TypeAlias
 
 from pydantic import BaseModel, field_validator, model_validator
-from metl.models.step import ArgumentType, Step
 
+from metl.models.step import EnvVariableType, Step
 from metl.models.utils import parse_yaml, parse_yaml_file
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class App(BaseModel):
     functional impact on the app.
     """
 
-    data: str  # TODO: implement remove this, it's redundant with env
+    data: str
     """
     The root directory where the app will store its data. If the directory does not exist, it will be created.
     This value can be referenced in steps using the `$data` placeholder.
@@ -55,7 +55,7 @@ class App(BaseModel):
     environment.
     """
 
-    env: dict[str, ArgumentType] = {}  # TODO: implement and test
+    env: dict[str, EnvVariableType] = {}
     """
     A dictionary of environment variables that can be referenced in job steps. This can be useful for
     declaring values that are used in multiple steps such as database connection strings.
@@ -142,43 +142,66 @@ def propagate_env(app: App):
             step.env = {**app.env, **step.env}
 
 
+EnvKeyLookupErrors = (KeyError, ValueError)
+
+
+def fuzzy_lookup(obj: BaseModel | dict, key: str, raise_on_missing: bool = False) -> EnvVariableType:
+    """
+    Look up a key in a model or dict using a case insensitive match that also allows underscores to be used
+    in place of dashes (and vice-versa)
+    """
+
+    def normalize_key(key: str) -> str:
+        return key.lower().replace("_", "-")
+
+    d = obj if isinstance(obj, dict) else obj.model_dump()
+    normalized_dict = {normalize_key(k): v for k, v in d.items()}
+    if raise_on_missing:
+        return normalized_dict[normalize_key(key)]
+    return normalized_dict.get(normalize_key(key))
+
+
+# TODO: extract this into a separate module: variables.py and ^^^
 def resolve_placeholders(app: App):
-    def temp_directory(root):
+    def temp_directory(root) -> str:
         if not os.path.exists(root):
             os.makedirs(root)
         return tempfile.mkdtemp("__", dir=root)
 
-    def temp_file(root):
+    def temp_file(root) -> str:
         if not os.path.exists(root):
             os.makedirs(root)
         fd, path = tempfile.mkstemp("__", dir=root)
         os.close(fd)
         return path
 
-    def get_key_value(obj: BaseModel | dict, keys: list[str], match: str):
-        def get(obj, key):
-            key = key.lower()
-            if isinstance(obj, dict):
-                return obj.get(key, obj.get(key.upper()))
-            return getattr(obj, key, None)
+    def get_key_value(obj: BaseModel | dict, keys: list[str], match: str) -> EnvVariableType:
+        incomplete_key_error = ValueError(
+            f"Incomplete key path, variable must reference a leaf value: `{match}`"
+            " -- did you forget to wrap the variable names in curly braces?"
+        )
+        if not keys:
+            raise incomplete_key_error
 
-        if (value := get(obj, keys[0])) is None:
+        try:
+            value = fuzzy_lookup(obj, keys[0], raise_on_missing=True)
+            if isinstance(value, BaseModel | dict) and len(keys) > 1:
+                return get_key_value(value, keys[1:], match)
+            if len(keys) <= 1:
+                return value
+            raise incomplete_key_error
+
+        except EnvKeyLookupErrors:
             valid_keys = ", ".join(
                 sorted(
                     f"`{key}`" for key in (list(obj.keys()) if isinstance(obj, dict) else list(obj.model_dump().keys()))
                 )
             )
             raise ValueError(f"Invalid placeholder `{keys[0]}` in {match}. Valid keys are: {valid_keys}")
-        if len(keys) == 1:
-            if isinstance(value, BaseModel | dict):
-                raise ValueError(
-                    f"Incomplete key path, variable must reference a leaf value: `{match}`"
-                    " -- did you forget to wrap the variable names in curly braces?"
-                )
-            return value
-        return get_key_value(value, keys[1:], match)
 
-    def variable_value(names: Iterable[str], current_step: Step, named_steps: dict[str, Step], match: str):
+    def variable_value(
+        names: Iterable[str], current_step: Step, named_steps: dict[str, Step], match: str
+    ) -> EnvVariableType:
         # Make case insensitive
         names = [n.lower() for n in names]
 
@@ -193,28 +216,36 @@ def resolve_placeholders(app: App):
         elif tuple(names) == ("tmp", "file"):
             return temp_file(tmpdir)
 
-        # Check current step
-        if hasattr(current_step, names[0]):
-            return get_key_value(current_step, names, match)
+        # Check current step's env
+        try:
+            return get_key_value(current_step.env, names, match)
+        except EnvKeyLookupErrors:
+            pass
 
         # Check for `previous`
         if names[0] == "previous" and "previous" not in named_steps:
             raise ValueError("Cannot use $previous placeholder on the first step")
 
-        # Resolve from previous steps
-        if step := named_steps.get(
-            names[0], named_steps.get(names[0].replace("_", "-"), named_steps.get(names[0].replace("-", "_")))
-        ):
-            return get_key_value(step, names[1:], match)
-        else:
-            valid_keys = ", ".join(sorted(f"`{key}`" for key in named_steps.keys()))
-            raise ValueError(
-                f"Invalid placeholder `{names[0]}` in {match}."
-                + (f" Valid keys are: {valid_keys}" if valid_keys else " There are no steps to reference.")
-            )
+        # Resolve from previous step's env
+        if step := fuzzy_lookup(named_steps, names[0]):
+            if isinstance(step, Step):
+                return get_key_value(step.env, names[1:], match)
 
-    def resolve(string: str, current_step: Step, named_steps: dict[str, Step]):
-        # First, find literal dollar signs ($$)
+        # Could not resolve
+        env_keys = ", ".join(sorted(current_step.env.keys()))
+        step_keys = ", ".join(sorted(named_steps.keys()))
+        raise ValueError(
+            f"Invalid name `{names[0]}` in `{match}`. The first must be one of:\n"
+            f" - variable in the current step's env: {env_keys or 'No env variables defined'}\n"
+            f" - name of a previous step: {step_keys or 'No previous steps defined'}"
+        )
+
+    def resolve(string: str, current_step: Step, named_steps: dict[str, Step]) -> EnvVariableType:
+        """
+        Parse the placeholder string and resolve it to a value.
+        """
+        # Find literal dollar signs ($$), replace them with a single dollar sign ($), and track their
+        # positions so that we can skip them when they match later on
         literal_pattern = re.compile(r"\$\$")
         literals = set()
         pos = 0
@@ -223,27 +254,34 @@ def resolve_placeholders(app: App):
             literals.add(match.start())
             pos = match.start() + 1
 
-        # Second, find placeholders in `string`` and replace them with their variable values
+        # Find placeholders in `string` and replace them with their variable values
         # but skip matches that start where we found literals
-        #        w/ curly braces <━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓      ┏━━━━━━━━━┳━> w/o curly braces
+        #        w/ curly braces <━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓      ┏━━━━━━━━┳━> w/o curly braces
         pattern = re.compile(r"(?:\${([\w_-]+(?:[.][\w_-]+)*)})|(?:\$([\w_-]+))")
         pos = 0
+        string_length_delta = 0  # accounts for length changes made to `string` along the way
         while match := pattern.search(string, pos):
-            if match.start() in literals:
+            if match.start() - string_length_delta in literals:
                 pos = match.start() + 1
                 continue
             matched_names = match[1] or match[2]
             names = matched_names.split(".")
-            if resolved := variable_value(names, current_step, named_steps, match[0]):
-                string = string[: match.start()] + resolved + string[match.end() :]
-                pos = match.start() + len(resolved)
-            else:
-                # TODO: we always raise now if a match does not have a value so we
-                #   should never hit this line -- is null or an empty string a valid value??
-                pos = match.start() + 1
+
+            resolved = variable_value(names, current_step, named_steps, match[0])
+            if match.span() == (0, len(string)):
+                # We matched the entire string, retain the original type (e.g. int, float, etc)
+                return resolved
+            # Match is embedded in the string
+            resolved = "null" if resolved is None else str(resolved)
+            string_length_delta += len(resolved) - len(match[0])
+            string = string[: match.start()] + resolved + string[match.end() :]
+            pos = match.start() + len(resolved)
         return string
 
     def traverse_object(model: BaseModel | dict, current_step: Step, named_steps: dict[str, Step]):
+        """
+        Look for placeholders (e.g. $previous.OUTPUT) in property (models) or dict values and resolve them.
+        """
         items = model.items() if isinstance(model, dict) else model.model_dump().items()
         for key, value in items:
             if isinstance(value, BaseModel | dict):
@@ -251,7 +289,7 @@ def resolve_placeholders(app: App):
             elif isinstance(value, str):
                 if "$" in value:
                     value = resolve(value, current_step, named_steps)
-                if value.startswith("~/"):
+                if isinstance(value, str) and value.startswith("~/"):
                     # assume it's a path and expand it
                     value = os.path.expanduser(value)
             else:

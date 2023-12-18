@@ -30,6 +30,7 @@ class TestAppManifest(object):
             Step(
                 transform="download",
                 env={
+                    "APP_VAR": "app-var-value",
                     "BASE_URL": "http://example.com/data",
                     "THROTTLE": 1000,
                     "OUTPUT": "/tmp/data",
@@ -196,7 +197,7 @@ class TestAppManifest(object):
                 - name: references-skipped
                   transform: splitter
                   env:
-                    SOURCE: ${previous.env.OUTPUT}
+                    SOURCE: ${previous.OUTPUT}
                     OUTPUT: /tmp/data1/splits
             """
         )

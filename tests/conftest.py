@@ -26,6 +26,8 @@ def app_manifest_simple(transforms_fixtures_path):
         name: Simple app manifest
         data: /data
         transforms: {transforms_fixtures_path}
+        env:
+          APP_VAR: app-var-value
         jobs:
           my-job:
             - transform: download

@@ -208,12 +208,12 @@ def test_step_env_inherits_host_and_app_env():
 @pytest.mark.parametrize(
     "placeholder, resolved",
     [
-        # ("$name", "second-step"),
-        # ("${name}", "second-step"),
         ("${VAR1}", "second-step-var1-value"),
         ("${Var1}", "second-step-var1-value"),
         ("${APP_VAR}", "app-var-value"),
         ("${App_var}", "app-var-value"),
+        ("${App-var}", "app-var-value"),
+        ("${APP-VAR}", "app-var-value"),
         ("${previous.VAR1}", "first-step-var1-value"),
         ("${previous.Var1}", "first-step-var1-value"),
         ("${previous.APP_VAR}", "app-var-value"),
@@ -238,6 +238,9 @@ def test_resolve_placeholders(_, placeholder, resolved):
               transform: transform1
               env:
                 VAR1: first-step-var1-value
+                VAR_INT: 123
+                VAR_FLOAT: 123.4
+                VAR_BOOL: true
             - name: second-step
               transform: transform2
               env:
@@ -253,18 +256,54 @@ def test_resolve_placeholders(_, placeholder, resolved):
 @pytest.mark.parametrize(
     "placeholder, resolved",
     [
-        (
-            "'[${env.VAR}$name]'",
-            "[valuefirst-step]",
-        ),  # TODO: consider using `self` to reference the current step to simplify
-        ("${env.VAR}${name}", "valuefirst-step"),
-        ("'[${env.var}]'", "[value]"),
-        ("$name$transform", "first-steptransform1"),
-        ("${env.VAR}/${env.APP_VAR}", "value/app-var-value"),
-        ("${env.VAR}/$$${env.APP_VAR}", "value/$app-var-value"),
-        ("$$$${env.VAR}", "$${env.VAR}"),
-        ("$$${env.VAR}", "$value"),
-        ("'[$data] *${transform}* $$${env.APP_VAR}$'", "[/data] *transform1* $app-var-value$"),
+        ("${VAR_INT}", 123),
+        ("${VAR_FLOAT}", 123.4),
+        ("${VAR_BOOL}", True),
+        ("'text: ${VAR_INT}'", "text: 123"),
+        ("'text: ${VAR_FLOAT}'", "text: 123.4"),
+        ("'text: ${VAR_BOOL}'", "text: True"),
+    ],
+)
+def test_resolve_placeholders_non_string_types(placeholder, resolved):
+    manifest = dedent(
+        f"""
+        name: Job with non-string variable values
+        data: /data
+        env:
+          VAR_INT: 123
+          VAR_FLOAT: 123.4
+          VAR_BOOL: true
+        jobs:
+          job1:
+            - name: first-step
+              transform: transform1
+              env:
+                VAR: {placeholder}
+        """
+    )
+    app = App.from_yaml(manifest)
+
+    assert app.jobs["job1"][0].env["VAR"] == resolved
+
+
+@pytest.mark.parametrize(
+    "placeholder, resolved",
+    [
+        ("'[${VAR}$vAr]'", "[valuevalue]"),
+        ("${VAR}${var}", "valuevalue"),
+        ("'[${var}]'", "[value]"),
+        ("$var$app-var", "valueapp-var-value"),  # TODO maybe check `app-var`` if that doenst work, try `app`
+        ("${VAR}/${APP_VAR}", "value/app-var-value"),
+        ("$VAR/$$$APP_VAR", "value/$app-var-value"),
+        ("$$$VAR/$$$APP_VAR/$$", "$value/$app-var-value/$"),
+        ("$$$${VAR}", "$${VAR}"),
+        ("$$$$VAR", "$$VAR"),
+        ("$$${VAR}", "$value"),
+        # the usecases below are specially crafted to have the placeholder `${VAR}` be 1 character
+        # more than the `value` so that the logic could get confused with the adjacent literal `$`
+        ("${VAR}/$$${APP_VAR}", "value/$app-var-value"),
+        ("${VAR}//$${APP_VAR}", "value//${APP_VAR}"),
+        ("'[$data] *${VAR}* $$${APP_VAR}$'", "[/data] *value* $app-var-value$"),
     ],
 )
 def test_resolve_placeholders_complex_matches(placeholder, resolved):
@@ -288,6 +327,29 @@ def test_resolve_placeholders_complex_matches(placeholder, resolved):
     assert app.jobs["job1"][0].env["PLACEHOLDER"] == resolved
 
 
+@pytest.mark.parametrize("null_value", ["null", "~"])
+def test_resolve_placeholders_none_value(null_value):
+    manifest = dedent(
+        f"""
+        name: Job with complex placeholder matches
+        data: /data
+        env:
+          APP_VAR: {null_value}
+        jobs:
+          job1:
+            - name: first-step
+              transform: transform1
+              env:
+                PLAIN: $APP_VAR
+                EMBEDDED: this is $APP_VAR
+        """
+    )
+    app = App.from_yaml(manifest)
+
+    assert app.jobs["job1"][0].env["PLAIN"] == None
+    assert app.jobs["job1"][0].env["EMBEDDED"] == "this is null", "None should be converted to a string as 'null'"
+
+
 @mock.patch.dict("metl.models.app.os.environ", {"HOST_VAR": "host-var-value"}, clear=True)
 def test_resolve_placeholders_recursive_matches():
     manifest = dedent(
@@ -303,11 +365,11 @@ def test_resolve_placeholders_recursive_matches():
               transform: transform1
               env:
                 VAR1: $data
-                VAR2: "${env.VAR1}" # would-be-resolved variable
-                VAR3: "${env.VAR3}" # self-referencing
-                VAR4: "${env.VAR5}" # yet-to-be-resolved variable
-                VAR5: ${env.APP_VAR}
-                VAR6: ${env.HOST_VAR}
+                VAR2: "${VAR1}" # would-be-resolved variable
+                VAR3: "${VAR3}" # self-referencing
+                VAR4: "${VAR5}" # yet-to-be-resolved variable
+                VAR5: ${APP_VAR}
+                VAR6: ${HOST_VAR}
         """
     )
     app = App.from_yaml(manifest)
@@ -317,8 +379,8 @@ def test_resolve_placeholders_recursive_matches():
         "HOST_VAR": "host-var-value",
         "VAR1": "/resolved-data-path",
         "VAR2": "$data",  # pre-resolution value
-        "VAR3": "${env.VAR3}",  # pre-resolution value
-        "VAR4": "${env.APP_VAR}",  # pre-resolution value
+        "VAR3": "${VAR3}",  # pre-resolution value
+        "VAR4": "${APP_VAR}",  # pre-resolution value
         "VAR5": "app-var-value",
         "VAR6": "host-var-value",
     }, "Only variables referencing other envs (app or host) are resolved"
@@ -365,7 +427,7 @@ def test_resolve_doesnt_expand_absolute_data_dir():
     assert app.jobs["job1"][0].env["OUTPUT"] == f"{app.data}/downloader/output"
 
 
-def test_resolve_unknown_app_variable_raises():
+def test_resolve_unknown_env_variable_no_vars_raises():
     manifest = dedent(
         """
         name: Single composed job manifest
@@ -373,18 +435,126 @@ def test_resolve_unknown_app_variable_raises():
         jobs:
           job1:
             - name: downloader
-              transform: download
-              env:
-                BASE_URL: http://example.com/data
-                OUTPUT: $unknown/foo/bar/baz
+              transform: ${unknown.something}
         """
     )
     with pytest.raises(ValueError) as exc_info:
         App.from_yaml(manifest)
+
+    actual_error = str(exc_info.value).split(" [type=value_error")[0]
     assert (
-        "Invalid placeholder `unknown` in $unknown. Valid keys are: `data`, `description`, `env`, `jobs`, `name`"
-        in str(exc_info.value)
+        actual_error
+        == dedent(
+            """
+            1 validation error for App
+              Value error, Invalid name `unknown` in `${unknown.something}`. The first must be one of:
+             - variable in the current step's env: No env variables defined
+             - name of a previous step: No previous steps defined
+            """
+        ).strip()
+    ), str(exc_info.value)
+
+
+def test_resolve_unknown_env_variable_no_previous_raises():
+    manifest = dedent(
+        """
+        name: Single composed job manifest
+        data: /data
+        env:
+          APP_VAR: app-var-value
+        jobs:
+          job1:
+            - name: downloader
+              transform: download
+              env:
+                VAR1: http://example.com/data
+                VAR2: $unknown/foo/bar/baz
+        """
     )
+    with pytest.raises(ValueError) as exc_info:
+        App.from_yaml(manifest)
+
+    actual_error = str(exc_info.value).split(" [type=value_error")[0]
+    assert (
+        actual_error
+        == dedent(
+            """
+            1 validation error for App
+              Value error, Invalid name `unknown` in `$unknown`. The first must be one of:
+             - variable in the current step's env: APP_VAR, VAR1, VAR2
+             - name of a previous step: No previous steps defined
+            """
+        ).strip()
+    ), str(exc_info.value)
+
+
+def test_resolve_unknown_env_variable_no_current_raises():
+    manifest = dedent(
+        """
+        name: Single composed job manifest
+        data: /data
+        jobs:
+          job1:
+            - name: first
+              transform: first
+              env:
+                VAR1: http://example.com/data
+            - name: second
+              transform: $unknown
+        """
+    )
+    with pytest.raises(ValueError) as exc_info:
+        App.from_yaml(manifest)
+
+    actual_error = str(exc_info.value).split(" [type=value_error")[0]
+    assert (
+        actual_error
+        == dedent(
+            """
+            1 validation error for App
+              Value error, Invalid name `unknown` in `$unknown`. The first must be one of:
+             - variable in the current step's env: No env variables defined
+             - name of a previous step: first, previous
+            """
+        ).strip()
+    ), str(exc_info.value)
+
+
+def test_resolve_unknown_env_variable_with_previous_raises():
+    manifest = dedent(
+        """
+        name: Single composed job manifest
+        data: /data
+        env:
+          APP_VAR: app-var-value
+        jobs:
+          job1:
+            - name: first
+              transform: first
+              env:
+                VAR1: http://example.com/data
+            - name: second
+              transform: second
+              env:
+                VAR1: http://example.com/data
+                VAR2: $unknown/foo/bar/baz
+        """
+    )
+    with pytest.raises(ValueError) as exc_info:
+        App.from_yaml(manifest)
+
+    actual_error = str(exc_info.value).split(" [type=value_error")[0]
+    assert (
+        actual_error
+        == dedent(
+            """
+            1 validation error for App
+              Value error, Invalid name `unknown` in `$unknown`. The first must be one of:
+             - variable in the current step's env: APP_VAR, VAR1, VAR2
+             - name of a previous step: first, previous
+            """
+        ).strip()
+    ), str(exc_info.value)
 
 
 def test_resolve_incomplete_variable_path_raises():
@@ -403,13 +573,13 @@ def test_resolve_incomplete_variable_path_raises():
               transform: download
               env:
                 BASE_URL: http://example.com/data
-                OUTPUT: ${{previous.env}} # missing env key
+                OUTPUT: ${{previous}} # missing env key
         """
     )
     with pytest.raises(ValueError) as exc_info:
         App.from_yaml(manifest)
     assert (
-        "Incomplete key path, variable must reference a leaf value: `${previous.env}` -- did you forget to wrap the variable names in curly braces?"
+        "Incomplete key path, variable must reference a leaf value: `${previous}` -- did you forget to wrap the variable names in curly braces?"
         in str(exc_info.value)
     )
 
@@ -430,7 +600,7 @@ def test_resolve_tmp_dir(tmpdir):
             - name: splitter
               transform: split
               env:
-                FOO: ${{previous.env.OUTPUT}}
+                FOO: ${{previous.OUTPUT}}
                 OUTPUT: ${{tmp.dir}}
         """
     )
@@ -465,7 +635,7 @@ def test_resolve_tmp_file(tmpdir):
             - name: splitter
               transform: split
               env:
-                FOO: ${{previous.env.OUTPUT}}
+                FOO: ${{previous.OUTPUT}}
                 OUTPUT: ${{tmp.file}}
         """
     )
@@ -483,85 +653,6 @@ def test_resolve_tmp_file(tmpdir):
     assert (
         app.jobs["job1"][1].env["FOO"] == app.jobs["job1"][0].env["OUTPUT"]
     ), "References to tmp file should be the same value"
-
-
-def test_resolve_unknown_step_raises():
-    manifest = dedent(
-        """
-        name: Single composed job manifest
-        data: /data
-        jobs:
-          job1:
-            - name: downloader
-              transform: download
-              env:
-                BASE_URL: http://example.com/data
-                OUTPUT: /data/output1
-            - name: splitter
-              transform: split
-              env:
-                FOO: ${unknown.output}
-                OUTPUT: /data/output2
-        """
-    )
-
-    with pytest.raises(Exception) as exc_info:
-        App.from_yaml(manifest)
-    assert "Invalid placeholder `unknown` in ${unknown.output}. Valid keys are: `downloader`, `previous`" in str(
-        exc_info.value
-    )
-
-
-def test_resolve_unknown_variable_raises():
-    manifest = dedent(
-        """
-        name: Single composed job manifest
-        data: /data
-        jobs:
-          job1:
-            - name: downloader
-              transform: download
-              env:
-                BASE_URL: http://example.com/data
-                OUTPUT: /data/output1
-            - name: splitter
-              transform: split
-              env:
-                FOO: ${downloader.unknown}
-                OUTPUT: /data/output2
-        """
-    )
-
-    with pytest.raises(ValueError) as exc_info:
-        App.from_yaml(manifest)
-    assert (
-        "Invalid placeholder `unknown` in ${downloader.unknown}. Valid keys are: `description`, `env`, `name`, `skip`, `transform`"
-        in str(exc_info.value)
-    )
-
-
-def test_resolve_variable_previous_output():
-    manifest = dedent(
-        """
-        name: Single composed job manifest
-        data: /data
-        jobs:
-          job1:
-            - name: downloader
-              transform: download
-              env:
-                BASE_URL: http://example.com/data
-                OUTPUT: /some/path
-            - name: splitter
-              transform: split
-              env:
-                FOO: ${previous.env.output}
-                OUTPUT: /data/output
-        """
-    )
-    app = App.from_yaml(manifest)
-
-    assert app.jobs["job1"][1].env["FOO"] == app.jobs["job1"][0].env["OUTPUT"]
 
 
 def test_resolve_variable_previous_unknown_variable_raises():
@@ -586,10 +677,11 @@ def test_resolve_variable_previous_unknown_variable_raises():
 
     with pytest.raises(ValueError) as exc_info:
         App.from_yaml(manifest)
-    assert (
-        "Invalid placeholder `unknown` in ${previous.unknown}. "
-        "Valid keys are: `description`, `env`, `name`, `skip`, `transform`"
-    ) in str(exc_info.value)
+    actual_error = str(exc_info.value).split(" [type=value_error")[0]
+    assert actual_error.strip() == (
+        "1 validation error for App\n  Value error, Invalid placeholder `unknown` in ${previous.unknown}. "
+        "Valid keys are: `BASE_URL`, `OUTPUT`"
+    ), str(exc_info.value)
 
 
 def test_resolve_variable_previous_output_first_step_raises():
@@ -602,7 +694,7 @@ def test_resolve_variable_previous_output_first_step_raises():
             - name: splitter
               transform: split
               env:
-                FOO: ${previous.env.output}
+                FOO: ${previous.output}
                 OUTPUT: /data/output
         """
     )
@@ -610,35 +702,6 @@ def test_resolve_variable_previous_output_first_step_raises():
     with pytest.raises(Exception) as exc_info:
         App.from_yaml(manifest)
     assert "Cannot use $previous placeholder on the first step" in str(exc_info.value)
-
-
-def test_resolve_variable_with_literal_dollar_sign():
-    manifest = dedent(
-        """
-        name: Single composed job manifest
-        data: /should/not/get/resolved/by/literal/dollar/signs
-        jobs:
-          job1:
-            - name: downloader
-              transform: download
-              env:
-                BASE_URL: http://example.com/$$data
-                OUTPUT: path/$$data
-            - name: splitter
-              transform: split
-              env:
-                FOO: ${previous.env.base_url}
-                OUTPUT: ${previous.env.output}
-        """
-    )
-
-    app = App.from_yaml(manifest)
-
-    steps = app.jobs["job1"]
-    assert steps[0].env["OUTPUT"] == "path/$data"
-    assert steps[0].env["BASE_URL"] == "http://example.com/$data"
-    assert steps[1].env["OUTPUT"] == "path/$data"
-    assert steps[1].env["FOO"] == "http://example.com/$data"
 
 
 def test_resolve_variable_chained_placeholders():
@@ -656,12 +719,12 @@ def test_resolve_variable_chained_placeholders():
             - name: downloader2
               transform: download
               env:
-                BASE_URL: ${downloader1.env.base_url}
+                BASE_URL: ${downloader1.base_url}
                 OUTPUT: /tmp/data/d2
             - name: downloader3
               transform: download
               env:
-                BASE_URL: ${downloader2.env.base_url}
+                BASE_URL: ${downloader2.base_url}
                 OUTPUT: /tmp/data/d3
     """
     )
@@ -683,19 +746,28 @@ def test_resolve_variable_circular_placeholders_raises():
               transform: download
               env:
                 BASE_URL: http://example.com$data
-                OUTPUT: ${downloader2.env.output}
+                OUTPUT: ${downloader2.output}
             - name: downloader2
               transform: download
               env:
                 BASE_URL: http://example.com$data
-                OUTPUT: ${downloader1.env.output}
+                OUTPUT: ${downloader1.output}
     """
     )
 
     with pytest.raises(Exception) as exc:
         App.from_yaml(manifest)
-    assert "Invalid placeholder `downloader2` in ${downloader2.env.output}. There are no steps to reference." in str(
-        exc.value
+    actual_message = str(exc.value).split(" [type=value_error")[0]
+    assert (
+        actual_message
+        == dedent(
+            """
+            1 validation error for App
+              Value error, Invalid name `downloader2` in `${downloader2.output}`. The first must be one of:
+             - variable in the current step's env: BASE_URL, OUTPUT
+             - name of a previous step: No previous steps defined
+            """
+        ).strip()
     )
 
 
@@ -716,12 +788,21 @@ def test_resolve_variable_named_placeholders_reference_other_job_raises():
               transform: download
               env:
                 BASE_URL: http://example.com$data
-                OUTPUT: ${downloader1.env.output}/job2
+                OUTPUT: ${downloader1.output}/job2
         """
     )
 
     with pytest.raises(Exception) as exc:
         App.from_yaml(manifest)
-    assert "Invalid placeholder `downloader1` in ${downloader1.env.output}. There are no steps to reference." in str(
-        exc.value
+    actual_message = str(exc.value).split(" [type=value_error")[0]
+    assert (
+        actual_message
+        == dedent(
+            """
+            1 validation error for App
+              Value error, Invalid name `downloader1` in `${downloader1.output}`. The first must be one of:
+             - variable in the current step's env: BASE_URL, OUTPUT
+             - name of a previous step: No previous steps defined
+            """
+        ).strip()
     )
