@@ -5,7 +5,6 @@ import tempfile
 from collections import OrderedDict
 from typing import Any, Iterable
 
-import yaml
 from pydantic import BaseModel, field_validator, model_validator
 from metl.models.step import ArgumentType, Step
 
@@ -30,7 +29,7 @@ class App(BaseModel):
     functional impact on the app.
     """
 
-    data: str
+    data: str  # TODO: implement remove this, it's redundant with env
     """
     The root directory where the app will store its data. If the directory does not exist, it will be created.
     This value can be referenced in steps using the `$data` placeholder.
@@ -44,6 +43,16 @@ class App(BaseModel):
                 INPUT: $data/input.csv
                 OUTPUT: $data/output.csv
     ```
+    """
+
+    host_env: list[str] | None = None
+    """
+    A list of environment variable names that should be inherited from the host environment. If the value is `*`
+    or is a list that contains `*`, then all environment variables will be inherited from the host environment.
+    Otherwise, only the environment variables that are explicitly listed will be inherited.
+
+    If the value is `None` (or omitted), then no environment variables will be inherited from the host
+    environment.
     """
 
     env: dict[str, ArgumentType] = {}  # TODO: implement and test
@@ -77,8 +86,19 @@ class App(BaseModel):
     def from_yaml(cls, yaml_content: str) -> "App":
         return cls(**parse_yaml(yaml_content))
 
+    @model_validator(mode="before")
+    @classmethod
+    def load_host_env(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        if host_env := data.get("host-env", data.get("host_env")):
+            data["host_env"] = [host_env] if isinstance(host_env, str) else host_env
+        return data
+
     @model_validator(mode="after")
     def resolve_placeholders(self) -> "App":
+        inherit_env(self)
+        propagate_env(self)
         resolve_placeholders(self)
         return self
 
@@ -91,6 +111,35 @@ class App(BaseModel):
 
 
 # Validation
+
+
+def inherit_env(app: App):
+    base_env = {}
+    host_env = app.host_env or []
+    if "*" in host_env:
+        if len(host_env) > 1:
+            # TODO: test this
+            logger.warning(
+                "The `*` value in `host-env` was specified alongside other values. "
+                "All host environment variables will be inherited."
+            )
+        base_env = dict(os.environ)
+    else:
+        base_env = {key: os.environ.get(key) for key in host_env}
+        if missing_keys := set(host_env) - set(base_env.keys()):
+            logger.warning(
+                "The following host environment variables were not found: {}".format(", ".join(missing_keys))
+            )
+    base_env = {**base_env, **app.env}
+    app.env = base_env
+
+
+def propagate_env(app: App):
+    if not app.env:
+        return
+    for steps in app.jobs.values():
+        for step in steps:
+            step.env = {**app.env, **step.env}
 
 
 def resolve_placeholders(app: App):
@@ -122,17 +171,20 @@ def resolve_placeholders(app: App):
             raise ValueError(f"Invalid placeholder `{keys[0]}` in {match}. Valid keys are: {valid_keys}")
         if len(keys) == 1:
             if isinstance(value, BaseModel | dict):
-                raise ValueError(f"Incomplete key path, variable must reference a leaf value: {match}")
+                raise ValueError(
+                    f"Incomplete key path, variable must reference a leaf value: `{match}`"
+                    " -- did you forget to wrap the variable names in curly braces?"
+                )
             return value
         return get_key_value(value, keys[1:], match)
 
-    def variable_value(names: Iterable[str], named_steps: dict[str, Step], match: str):
+    def variable_value(names: Iterable[str], current_step: Step, named_steps: dict[str, Step], match: str):
         # Make case insensitive
         names = [n.lower() for n in names]
 
-        # Check for properties on the app
-        if len(names) == 1:
-            return get_key_value(app, names, match)
+        # Check for the `data` variable
+        if names == ["data"]:
+            return app.data
 
         # Check for $tmp variables
         tmpdir = os.path.join(app.data, "tmp")
@@ -141,12 +193,18 @@ def resolve_placeholders(app: App):
         elif tuple(names) == ("tmp", "file"):
             return temp_file(tmpdir)
 
+        # Check current step
+        if hasattr(current_step, names[0]):
+            return get_key_value(current_step, names, match)
+
         # Check for `previous`
         if names[0] == "previous" and "previous" not in named_steps:
             raise ValueError("Cannot use $previous placeholder on the first step")
 
         # Resolve from previous steps
-        if step := named_steps.get(names[0]):
+        if step := named_steps.get(
+            names[0], named_steps.get(names[0].replace("_", "-"), named_steps.get(names[0].replace("-", "_")))
+        ):
             return get_key_value(step, names[1:], match)
         else:
             valid_keys = ", ".join(sorted(f"`{key}`" for key in named_steps.keys()))
@@ -155,7 +213,7 @@ def resolve_placeholders(app: App):
                 + (f" Valid keys are: {valid_keys}" if valid_keys else " There are no steps to reference.")
             )
 
-    def resolve(string: str, named_steps: dict[str, Step]):
+    def resolve(string: str, current_step: Step, named_steps: dict[str, Step]):
         # First, find literal dollar signs ($$)
         literal_pattern = re.compile(r"\$\$")
         literals = set()
@@ -167,8 +225,8 @@ def resolve_placeholders(app: App):
 
         # Second, find placeholders in `string`` and replace them with their variable values
         # but skip matches that start where we found literals
-        #        w/ curly braces <━┳━━━━━━━━━━━━━━━━━┓      ┏━━━━┳━> w/o curly braces
-        pattern = re.compile(r"(?:\${(\w+(?:[.]\w+)*)})|(?:\$(\w+))")
+        #        w/ curly braces <━┳━━━━━━━━━━━━━━━━━━━━━━━━━┓      ┏━━━━━━━━━┳━> w/o curly braces
+        pattern = re.compile(r"(?:\${([\w_-]+(?:[.][\w_-]+)*)})|(?:\$([\w_-]+))")
         pos = 0
         while match := pattern.search(string, pos):
             if match.start() in literals:
@@ -176,23 +234,23 @@ def resolve_placeholders(app: App):
                 continue
             matched_names = match[1] or match[2]
             names = matched_names.split(".")
-            if resolved := variable_value(names, named_steps, match[0]):
+            if resolved := variable_value(names, current_step, named_steps, match[0]):
                 string = string[: match.start()] + resolved + string[match.end() :]
                 pos = match.start() + len(resolved)
             else:
                 # TODO: we always raise now if a match does not have a value so we
-                #   should never hit this line
+                #   should never hit this line -- is null or an empty string a valid value??
                 pos = match.start() + 1
         return string
 
-    def traverse_object(model: BaseModel | dict, named_steps: dict[str, Step]):
+    def traverse_object(model: BaseModel | dict, current_step: Step, named_steps: dict[str, Step]):
         items = model.items() if isinstance(model, dict) else model.model_dump().items()
         for key, value in items:
             if isinstance(value, BaseModel | dict):
-                traverse_object(value, named_steps)
+                traverse_object(value, current_step, named_steps)
             elif isinstance(value, str):
                 if "$" in value:
-                    value = resolve(value, named_steps)
+                    value = resolve(value, current_step, named_steps)
                 if value.startswith("~/"):
                     # assume it's a path and expand it
                     value = os.path.expanduser(value)
@@ -209,7 +267,7 @@ def resolve_placeholders(app: App):
     for steps in app.jobs.values():
         named_steps = OrderedDict({})
         for step in steps:
-            traverse_object(step, named_steps)
+            traverse_object(step, step, named_steps)
             if step.name:
                 named_steps[step.name] = step
             named_steps["previous"] = step
