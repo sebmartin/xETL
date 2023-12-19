@@ -3,12 +3,14 @@ import os
 import re
 import tempfile
 from collections import OrderedDict
-from typing import Any, Iterable, TypeAlias
+from typing import Any, Iterable
 
 from pydantic import BaseModel, field_validator, model_validator
 
-from metl.models.step import EnvVariableType, Step
-from metl.models.utils import parse_yaml, parse_yaml_file
+from metl.models import EnvKeyLookupErrors, EnvVariableType
+from metl.models.step import Step
+from metl.models.utils.dicts import fuzzy_lookup
+from metl.models.utils.io import parse_yaml, parse_yaml_file
 
 logger = logging.getLogger(__name__)
 
@@ -142,26 +144,6 @@ def propagate_env(app: App):
             step.env = {**app.env, **step.env}
 
 
-EnvKeyLookupErrors = (KeyError, ValueError)
-
-
-def fuzzy_lookup(obj: BaseModel | dict, key: str, raise_on_missing: bool = False) -> EnvVariableType:
-    """
-    Look up a key in a model or dict using a case insensitive match that also allows underscores to be used
-    in place of dashes (and vice-versa)
-    """
-
-    def normalize_key(key: str) -> str:
-        return key.lower().replace("_", "-")
-
-    d = obj if isinstance(obj, dict) else obj.model_dump()
-    normalized_dict = {normalize_key(k): v for k, v in d.items()}
-    if raise_on_missing:
-        return normalized_dict[normalize_key(key)]
-    return normalized_dict.get(normalize_key(key))
-
-
-# TODO: extract this into a separate module: variables.py and ^^^
 def resolve_placeholders(app: App):
     def temp_directory(root) -> str:
         if not os.path.exists(root):

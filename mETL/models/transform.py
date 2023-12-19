@@ -1,20 +1,16 @@
-from enum import Enum
 import logging
 import os
 import shlex
 import subprocess
-from typing import Any, Type, TypeAlias
-from pydantic import BaseModel, ValidationError, field_validator, model_validator
-from metl.models.step import EnvVariableType, Step
+from enum import Enum
+from typing import Any, Type
 
-from metl.models.utils import (
-    InvalidManifestError,
-    ManifestLoadError,
-    conform_env_key,
-    conform_key,
-    load_file,
-    parse_yaml,
-)
+from pydantic import BaseModel, ValidationError, field_validator, model_validator
+
+from metl.models import EnvVariableType
+from metl.models.step import Step
+from metl.models.utils.dicts import conform_env_key, conform_key
+from metl.models.utils.io import InvalidManifestError, ManifestLoadError, load_file, parse_yaml
 
 logger = logging.getLogger(__name__)
 

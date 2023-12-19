@@ -7,7 +7,7 @@ from pydantic import ValidationError
 import pytest
 
 from metl.models.app import App
-from metl.models.utils import InvalidManifestError, ManifestLoadError
+from metl.models.utils.io import InvalidManifestError, ManifestLoadError
 
 
 def fake_expanduser(path):
@@ -201,7 +201,6 @@ def test_step_env_inherits_host_and_app_env():
     ), "The STEP var should have been inherited by the step"
 
 
-# TODO: check if unmatched varibles raise or not.. it seems like they don't. Should they?
 # TODO: make sure env names don't have dashes in them
 
 

@@ -1,10 +1,9 @@
-from typing import Any, TypeAlias
+from typing import Any
+
 from pydantic import BaseModel, field_validator
 
-from metl.models.utils import conform_env_key
-
-# TODO: support lists and dicts?
-EnvVariableType: TypeAlias = str | int | float | bool | None
+from metl.models import EnvVariableType
+from metl.models.utils.dicts import conform_env_key
 
 
 class Step(BaseModel):

@@ -1,7 +1,4 @@
-import logging
 import yaml
-
-logger = logging.getLogger(__name__)
 
 
 class ChainedException(Exception):
@@ -41,28 +38,3 @@ def parse_yaml_file(path: str) -> dict:
         return parse_yaml(yaml_content)
     except Exception as e:
         raise ManifestLoadError(f"Error while parsing YAML at path: {path}") from e
-
-
-def conform_key(key: str):
-    """
-    All properties in app and transform manifests are converted to snake case. The only exception is
-    the `env` dictionary in Transforms and Step models which are converted to upper case with underscores.
-    See `conform_env_key` for more information.
-    """
-    return key.lower().replace("-", "_")
-
-
-def conform_env_key(key: str):
-    """
-    The keys in env dictionaries are converted to upper case with underscores. This is done to match the
-    convention of environment variables. For example, the following env dictionary:
-
-        env:
-          my-env-var: foo
-
-    will be converted to:
-
-        env:
-          MY_ENV_VAR: foo
-    """
-    return key.upper().replace("-", "_")
