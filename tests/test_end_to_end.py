@@ -113,7 +113,7 @@ def test_execute_bash_app(app_manifest, print_env_transform, filter_env_transfor
         [
             ".venv/bin/python",
             "-m",
-            "metl",
+            "xetl",
             str(app_manifest),
         ],
         stdout=subprocess.PIPE,
@@ -190,7 +190,7 @@ def test_execute_bash_app_dryrun(app_manifest, print_env_transform, filter_env_t
         [
             ".venv/bin/python",
             "-m",
-            "metl",
+            "xetl",
             str(tmpdir / "app.yml"),
             "--dryrun",
         ],
@@ -315,7 +315,7 @@ def test_execute_with_failure(output_dir, transforms_repo_path, tmpdir):
         [
             ".venv/bin/python",
             "-m",
-            "metl",
+            "xetl",
             str(tmpdir / "app.yml"),
         ],
         stdout=subprocess.PIPE,
@@ -355,7 +355,7 @@ def test_invalid_app_yaml(tmpdir):
         [
             ".venv/bin/python",
             "-m",
-            "metl",
+            "xetl",
             str(tmpdir / "app.yml"),
         ],
         stdout=subprocess.PIPE,

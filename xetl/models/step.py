@@ -2,8 +2,8 @@ from typing import Any
 
 from pydantic import BaseModel, field_validator
 
-from metl.models import EnvVariableType
-from metl.models.utils.dicts import conform_env_key
+from xetl.models import EnvVariableType
+from xetl.models.utils.dicts import conform_env_key
 
 
 class Step(BaseModel):
@@ -26,7 +26,7 @@ class Step(BaseModel):
     The name of the transform to execute. The transform needs to be discovered by the engine in order
     to be referenced by name and be found. The name matching is case insensitive.
 
-    See the `metl.models.transform.discover_transforms` function for more information on the transform
+    See the `xetl.models.transform.discover_transforms` function for more information on the transform
     discovery process.
     """
 

@@ -1,15 +1,14 @@
 import argparse
 import logging
 import os
-from metl.logging import LogContext, log_context
-from metl.models.transform import TransformFailure
-from metl.engine import execute_app
+from xetl.models.transform import TransformFailure
+from xetl.engine import execute_app
 
 logger = logging.getLogger(__name__)
 
 
 def main():
-    parser = argparse.ArgumentParser("mETL")
+    parser = argparse.ArgumentParser("Let's Go!")
     parser.add_argument("manifest", help="Path to app manifest YAML file")
     parser.add_argument("--skip-to", default=None, help="Name of job (and optionally step) to skip to")
     parser.add_argument("--dryrun", action="store_true", help="Print the transform commands instead of executing them")

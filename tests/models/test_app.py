@@ -6,8 +6,8 @@ import mock
 from pydantic import ValidationError
 import pytest
 
-from metl.models.app import App
-from metl.models.utils.io import InvalidManifestError, ManifestLoadError
+from xetl.models.app import App
+from xetl.models.utils.io import InvalidManifestError, ManifestLoadError
 
 
 def fake_expanduser(path):
@@ -107,7 +107,7 @@ def test_conform_env_invalid_values(env_item):
     assert "jobs.job1.0.env\n  Input should be a valid dictionary" in str(exc.value)
 
 
-@mock.patch.dict("metl.models.app.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
+@mock.patch.dict("xetl.models.app.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
 def test_host_env_default_dont_inherit():
     manifest = dedent(
         """
@@ -121,7 +121,7 @@ def test_host_env_default_dont_inherit():
 
 
 @pytest.mark.parametrize("all", ["'*'", "\n - '*'", "\n - V1\n - '*'"])
-@mock.patch.dict("metl.models.app.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
+@mock.patch.dict("xetl.models.app.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
 def test_host_env_inherit_all(all):
     manifest = dedent(
         """
@@ -159,7 +159,7 @@ def test_host_env_inherit_all_mixed_warns(caplog):
     ), "Should have logged a warning about mixing '*' with other values"
 
 
-@mock.patch.dict("metl.models.app.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
+@mock.patch.dict("xetl.models.app.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
 def test_host_env_subset():
     manifest = dedent(
         """
@@ -175,7 +175,7 @@ def test_host_env_subset():
     assert app.env.get("VAR2") == None, "VAR2 should NOT have been loaded from the HOST env"
 
 
-@mock.patch.dict("metl.models.app.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
+@mock.patch.dict("xetl.models.app.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
 def test_host_env_app_overrides_host_env():
     manifest = dedent(
         """
@@ -192,7 +192,7 @@ def test_host_env_app_overrides_host_env():
     assert app.env.get("VAR2") == "host-var2-value", "VAR2 should have been loaded from the HOST env"
 
 
-@mock.patch.dict("metl.models.app.os.environ", {"HOST_VAR": "host-var-value"}, clear=True)
+@mock.patch.dict("xetl.models.app.os.environ", {"HOST_VAR": "host-var-value"}, clear=True)
 def test_step_env_inherits_host_and_app_env():
     manifest = dedent(
         f"""
@@ -239,7 +239,7 @@ def test_step_env_inherits_host_and_app_env():
         ("~/relative/path/", "/User/username/relative/path/"),
     ],
 )
-@mock.patch("metl.models.app.os.path.expanduser", side_effect=fake_expanduser)
+@mock.patch("xetl.models.app.os.path.expanduser", side_effect=fake_expanduser)
 def test_resolve_placeholders(_, placeholder, resolved):
     manifest = dedent(
         f"""
@@ -366,7 +366,7 @@ def test_resolve_placeholders_none_value(null_value):
     assert app.jobs["job1"][0].env["EMBEDDED"] == "this is null", "None should be converted to a string as 'null'"
 
 
-@mock.patch.dict("metl.models.app.os.environ", {"HOST_VAR": "host-var-value"}, clear=True)
+@mock.patch.dict("xetl.models.app.os.environ", {"HOST_VAR": "host-var-value"}, clear=True)
 def test_resolve_placeholders_recursive_matches():
     manifest = dedent(
         """
@@ -402,7 +402,7 @@ def test_resolve_placeholders_recursive_matches():
     }, "Only variables referencing other envs (app or host) are resolved"
 
 
-@mock.patch("metl.models.app.os.path.abspath", side_effect=fake_abspath)
+@mock.patch("xetl.models.app.os.path.abspath", side_effect=fake_abspath)
 def test_resolve_placeholders_expands_relative_data_dir(_):
     manifest = dedent(
         """

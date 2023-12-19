@@ -3,9 +3,9 @@ from textwrap import dedent
 import pytest
 import mock
 
-from metl import engine
-from metl.models.step import Step
-from metl.models.transform import Transform, TransformFailure, UnknownTransformError
+from xetl import engine
+from xetl.models.step import Step
+from xetl.models.transform import Transform, TransformFailure, UnknownTransformError
 
 
 def app_file(app_yaml: str, tmpdir):
@@ -17,7 +17,7 @@ def app_file(app_yaml: str, tmpdir):
 
 @mock.patch("subprocess.run", mock.Mock())
 class TestAppManifest(object):
-    @mock.patch("metl.engine.execute_job_step", return_value=0)
+    @mock.patch("xetl.engine.execute_job_step", return_value=0)
     def test_execute_app_simple_job(self, execute_job_step, app_manifest_simple_path, transforms_fixtures_path):
         engine.execute_app(app_manifest_simple_path)
 
@@ -45,7 +45,7 @@ class TestAppManifest(object):
         assert all(isinstance(t, Transform) for t in actual_transform.values())
         assert all(dryrun is False for dryrun in actual_dryruns)
 
-    @mock.patch("metl.engine.execute_job_steps")
+    @mock.patch("xetl.engine.execute_job_steps")
     @pytest.mark.parametrize("dryrun", [True, False])
     def test_execute_app_multiple_single_step_jobs(
         self, execute_job_steps, dryrun, app_manifest_multiple_single_step_jobs_path, transforms_fixtures_path
@@ -81,7 +81,7 @@ class TestAppManifest(object):
             list(actual_dryruns)
         )
 
-    @mock.patch("metl.engine.execute_job_steps")
+    @mock.patch("xetl.engine.execute_job_steps")
     def test_execute_app_one_job_multiple_steps(
         self, execute_job_steps, app_manifest_single_multiple_step_job_path, transforms_fixtures_path, tmpdir
     ):
@@ -106,7 +106,7 @@ class TestAppManifest(object):
             actual_transform == p for p in actual_transforms
         ), "Each call to `execute_job_steps` should have passed the same transforms dict"
 
-    @mock.patch("metl.engine.execute_job_step", return_value=127)
+    @mock.patch("xetl.engine.execute_job_step", return_value=127)
     def test_execute_app_stops_if_step_fails(
         self, execute_job_step, app_manifest_single_multiple_step_job_path, transforms_fixtures_path, tmpdir
     ):
@@ -116,7 +116,7 @@ class TestAppManifest(object):
         assert execute_job_step.call_count == 1, "execute_job_step() should have only been called once"
         assert excinfo.value.returncode == 127, "The exception should contain the return code of the failed transform"
 
-    @mock.patch("metl.engine.execute_job_steps")
+    @mock.patch("xetl.engine.execute_job_steps")
     def test_execute_app_without_transforms_path_warns(self, execute_job_steps, tmpdir, caplog):
         manifest = dedent(
             """
@@ -131,7 +131,7 @@ class TestAppManifest(object):
             in caplog.messages
         )
 
-    @mock.patch("metl.engine.execute_job_steps")
+    @mock.patch("xetl.engine.execute_job_steps")
     def test_execute_app_no_transforms_found(self, execute_job_steps, tmpdir, caplog):
         manifest = dedent(
             """
@@ -144,7 +144,7 @@ class TestAppManifest(object):
         engine.execute_app(app_file(manifest, str(tmpdir)))
         assert "Could not find any transforms at paths ['/tmp/does-not-exist']" in caplog.messages
 
-    @mock.patch("metl.models.transform.Transform.execute", return_value=127)
+    @mock.patch("xetl.models.transform.Transform.execute", return_value=127)
     def test_execute_app_with_unknown_transform(
         self, transform_execute, app_manifest_simple, transforms_fixtures_path, tmpdir
     ):
@@ -165,7 +165,7 @@ class TestAppManifest(object):
         ],
         ids=["skip-to-job-1", "skip-to-job-2", "skip-to-job1-step-2", "skip-to-job2-step-2"],
     )
-    @mock.patch("metl.engine.execute_job_steps")
+    @mock.patch("xetl.engine.execute_job_steps")
     def test_execute_app_skip_to(
         self,
         execute_job_steps,
@@ -179,7 +179,7 @@ class TestAppManifest(object):
         actual_steps_names = [[step.name for step in steps] for steps in actual_steps]
         assert actual_steps_names == expected_steps
 
-    @mock.patch("metl.engine.execute_job_step", return_value=0)
+    @mock.patch("xetl.engine.execute_job_step", return_value=0)
     def test_execute_app_skipped_steps_still_resolve(self, execute_job_step, tmpdir):
         app_manifest = dedent(
             """

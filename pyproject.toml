@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "xETL"
+version = "0.9.1"
+description = "An orchestation library for sequencing executions but don't call it an ETL."
+authors = ["Sebastien Martin"]
+license = "Apache License 2.0"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pydantic = "^2.5.2"
+PyYAML = "^6.0.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.3"
+pytest-cov = "^4.1.0"
+ipython = "^8.18.1"
+mock = "^5.1.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

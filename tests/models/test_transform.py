@@ -1,17 +1,20 @@
-from distutils.dir_util import copy_tree
 import os
 import re
+from shutil import copytree
 from textwrap import dedent
-from typing import Any
 
 import mock
-from mock import call
-from pydantic import ValidationError
 import pytest
 import yaml
-from metl.models.step import Step
+from mock import call
+from pydantic import ValidationError
 
-from metl.models.transform import EnvType, InputDetails, Transform, discover_transforms
+from xetl.models.step import Step
+from xetl.models.transform import EnvType, InputDetails, Transform, discover_transforms
+
+
+def copy_tree(src, dst):
+    copytree(src, dst, dirs_exist_ok=True)
 
 
 def transform_file(transform_yaml: str, tmpdir):
@@ -394,7 +397,7 @@ class TestDeserialization:
 class TestExecuteTransform:
     @pytest.fixture(autouse=True)
     def mock_popen(self):
-        with mock.patch("metl.models.transform.subprocess.Popen") as mock_popen:
+        with mock.patch("xetl.models.transform.subprocess.Popen") as mock_popen:
             mock_popen.return_value.poll.return_value = 0
             mock_popen.return_value.returncode = 0
             mock_popen.return_value.stdout.readline.side_effect = [
@@ -408,7 +411,7 @@ class TestExecuteTransform:
 
     @pytest.fixture
     def mock_logger(self):
-        with mock.patch("metl.models.transform.logger") as mock_logger:
+        with mock.patch("xetl.models.transform.logger") as mock_logger:
             yield mock_logger
 
     def test_execute_transform(self, simple_transform_manifest_path, mock_logger, mock_popen):

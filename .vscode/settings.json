@@ -5,6 +5,6 @@
         "-vv",
         "--durations=10",
         "--cov-report=term-missing",
-        "--cov=metl"
+        "--cov=xetl"
     ]
 }

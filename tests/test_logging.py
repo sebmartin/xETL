@@ -1,7 +1,7 @@
 import mock
 import pytest
 import logging
-from metl.logging import LogContext, configure_logging, log_context
+from xetl.logging import LogContext, configure_logging, log_context
 
 
 @pytest.fixture
@@ -30,8 +30,8 @@ def logger(mock_handler):
     return logger
 
 
-@mock.patch("metl.logging.NestedFormatter._formatted_date", return_value="2023-11-13 23:23:51.228")
-@mock.patch("metl.logging.sys.stdout.isatty", return_value=False)
+@mock.patch("xetl.logging.NestedFormatter._formatted_date", return_value="2023-11-13 23:23:51.228")
+@mock.patch("xetl.logging.sys.stdout.isatty", return_value=False)
 def test_logging_all_no_tty_not_colored(_, __, logger, mock_handler):
     logger.info("Some info without a context")
     logger.warning("A warning without a context")
@@ -105,8 +105,8 @@ def test_logging_all_no_tty_not_colored(_, __, logger, mock_handler):
     ]
 
 
-@mock.patch("metl.logging.NestedFormatter._formatted_date", return_value="2023-11-13 23:23:51.228")
-@mock.patch("metl.logging.sys.stdout.isatty", return_value=True)
+@mock.patch("xetl.logging.NestedFormatter._formatted_date", return_value="2023-11-13 23:23:51.228")
+@mock.patch("xetl.logging.sys.stdout.isatty", return_value=True)
 def test_logging_all_tty_is_colored(_, __, logger, mock_handler):
     logger.info("Some info without a context")
     logger.warning("A warning without a context")

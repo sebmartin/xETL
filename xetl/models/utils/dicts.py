@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from metl.models import EnvVariableType
+from xetl.models import EnvVariableType
 
 
 def conform_key(key: str):
