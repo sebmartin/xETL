@@ -94,6 +94,6 @@ def execute_job_step(step: Step, transforms: dict[str, Transform], dryrun) -> in
     name = step.transform
 
     if transform := transforms.get(name):
-        return transform.execute(step, dryrun)
+        return transform.execute(step, dryrun)  # TODO: no unit tests hit this
     else:
         raise UnknownTransformError(f"Unknown transform `{name}`, should be one of: {sorted(transforms.keys())}")

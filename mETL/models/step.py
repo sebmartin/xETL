@@ -14,7 +14,6 @@ class Step(BaseModel):
 
     name: str | None = None
     """An optional name for the step. This can be any string value."""
-    # TODO: add tests for invalid names (only characters, numbers, dashes, and underscores allowed)
 
     description: str | None = None
     """
@@ -51,3 +50,16 @@ class Step(BaseModel):
         if not isinstance(value, dict):
             return value
         return {conform_env_key(key): value for key, value in value.items()}
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def validate_name(cls, value: Any):
+        # TODO: test this
+        if not isinstance(value, str):
+            return value
+        valid_characters = set("abcdefghijklmnopqrstuvwxyz0123456789-_")
+        if set(value.lower()) - valid_characters:
+            raise ValueError(
+                f"Step name '{value}' contains invalid characters. Only letters, numbers, dashes, and underscores are allowed."
+            )
+        return value

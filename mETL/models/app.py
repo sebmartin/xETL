@@ -92,7 +92,7 @@ class App(BaseModel):
     @classmethod
     def load_host_env(cls, data: Any) -> Any:
         if not isinstance(data, dict):
-            return data
+            return data  # TODO: test this
         if host_env := data.get("host-env", data.get("host_env")):
             data["host_env"] = [host_env] if isinstance(host_env, str) else host_env
         return data
@@ -120,7 +120,6 @@ def inherit_env(app: App):
     host_env = app.host_env or []
     if "*" in host_env:
         if len(host_env) > 1:
-            # TODO: test this
             logger.warning(
                 "The `*` value in `host-env` was specified alongside other values. "
                 "All host environment variables will be inherited."
@@ -129,6 +128,7 @@ def inherit_env(app: App):
     else:
         base_env = {key: os.environ.get(key) for key in host_env}
         if missing_keys := set(host_env) - set(base_env.keys()):
+            # TODO: test this
             logger.warning(
                 "The following host environment variables were not found: {}".format(", ".join(missing_keys))
             )
@@ -168,10 +168,10 @@ def resolve_placeholders(app: App):
         try:
             value = fuzzy_lookup(obj, keys[0], raise_on_missing=True)
             if isinstance(value, BaseModel | dict) and len(keys) > 1:
-                return get_key_value(value, keys[1:], match)
+                return get_key_value(value, keys[1:], match)  # TODO: test this
             if len(keys) <= 1:
                 return value
-            raise incomplete_key_error
+            raise incomplete_key_error  # TODO: test this
 
         except EnvKeyLookupErrors:
             valid_keys = ", ".join(

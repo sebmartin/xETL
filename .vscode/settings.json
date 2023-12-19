@@ -3,6 +3,8 @@
     "python.testing.pytestEnabled": true,
     "python.testing.pytestArgs": [
         "-vv",
-        "--durations=10"
+        "--durations=10",
+        "--cov-report=term-missing",
+        "--cov=metl"
     ]
 }

@@ -139,6 +139,26 @@ def test_host_env_inherit_all(all):
     assert app.env.get("VAR3") == "app-var3-value", "VAR1 should be set to the APP env value"
 
 
+def test_host_env_inherit_all_mixed_warns(caplog):
+    caplog.set_level("WARNING")
+    manifest = dedent(
+        """
+        name: App does not inherit
+        data: /data
+        host-env:
+          - VAR1
+          - '*'
+        jobs: {{}}
+        """
+    ).format(all=all)
+    App.from_yaml(manifest)
+
+    assert (
+        "The `*` value in `host-env` was specified alongside other values. All host environment variables will be inherited."
+        in caplog.text
+    ), "Should have logged a warning about mixing '*' with other values"
+
+
 @mock.patch.dict("metl.models.app.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
 def test_host_env_subset():
     manifest = dedent(
@@ -199,9 +219,6 @@ def test_step_env_inherits_host_and_app_env():
     assert (
         app.jobs["job1"][0].env.get("STEP_VAR") == "step-var-value"
     ), "The STEP var should have been inherited by the step"
-
-
-# TODO: make sure env names don't have dashes in them
 
 
 @pytest.mark.parametrize(
@@ -291,7 +308,7 @@ def test_resolve_placeholders_non_string_types(placeholder, resolved):
         ("'[${VAR}$vAr]'", "[valuevalue]"),
         ("${VAR}${var}", "valuevalue"),
         ("'[${var}]'", "[value]"),
-        ("$var$app-var", "valueapp-var-value"),  # TODO maybe check `app-var`` if that doenst work, try `app`
+        ("$var$app-var", "valueapp-var-value"),
         ("${VAR}/${APP_VAR}", "value/app-var-value"),
         ("$VAR/$$$APP_VAR", "value/$app-var-value"),
         ("$$$VAR/$$$APP_VAR/$$", "$value/$app-var-value/$"),
