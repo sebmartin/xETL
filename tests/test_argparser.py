@@ -4,13 +4,13 @@ from typing import Generator
 import pytest
 
 from xetl.argparse import ArgumentParser
-from xetl.models.transform import Transform
+from xetl.models.command import Command
 
-TRANSFORM_PATH = "./tests/fixtures/transforms/download/manifest.yml"
+COMMAND_PATH = "./tests/fixtures/commands/download/manifest.yml"
 
 
 @pytest.fixture
-def transform() -> Transform:
+def command() -> Command:
     yaml = dedent(
         """
         name: download
@@ -19,7 +19,7 @@ def transform() -> Transform:
         run-command: curl http://www.example.com
         """
     )
-    return Transform.from_yaml(yaml, "./tests/fixtures/transforms/download")
+    return Command.from_yaml(yaml, "./tests/fixtures/commands/download")
 
 
 @pytest.fixture
@@ -29,15 +29,15 @@ def output_buffer() -> Generator[io.StringIO, None, None]:
 
 
 @pytest.mark.parametrize(
-    "transform",
+    "command",
     [
-        TRANSFORM_PATH,
-        Transform.from_file(TRANSFORM_PATH),
+        COMMAND_PATH,
+        Command.from_file(COMMAND_PATH),
     ],
-    ids=["from_file", "from_transform"],
+    ids=["from_file", "from_command"],
 )
-def test_argument_parser_from_file_or_transform(transform):
-    assert isinstance(ArgumentParser(transform), ArgumentParser)
+def test_argument_parser_from_file_or_command(command):
+    assert isinstance(ArgumentParser(command), ArgumentParser)
 
 
 def test_argument_parser_help(output_buffer: io.StringIO):
@@ -62,8 +62,8 @@ def test_argument_parser_help(output_buffer: io.StringIO):
         run-command: python -m download
         """
     )
-    transform = Transform.from_yaml(yaml, "./tests/fixtures/transforms/download")
-    ArgumentParser(transform).print_help(file=output_buffer)
+    command = Command.from_yaml(yaml, "./tests/fixtures/commands/download")
+    ArgumentParser(command).print_help(file=output_buffer)
     assert (
         output_buffer.getvalue().strip()
         == dedent(
@@ -85,11 +85,11 @@ def test_argument_parser_help(output_buffer: io.StringIO):
 
 
 @pytest.mark.parametrize("type, value", [("int", 1), ("float", 1.1), ("bool", True), ("str", "one")])
-def test_argument_parser_types(type, value, output_buffer: io.StringIO):
+def test_argument_parser_types(type, value):
     yaml = dedent(
         f"""
         name: dummy
-        description: A dummy application to test argument types
+        description: A dummy job to test argument types
         env-type: python
         env:
           VAR:
@@ -99,8 +99,8 @@ def test_argument_parser_types(type, value, output_buffer: io.StringIO):
         run-command: python -m dummy
         """
     )
-    transform = Transform.from_yaml(yaml, "./tests/fixtures/transforms/download")
-    parser = ArgumentParser(transform)
+    command = Command.from_yaml(yaml, "./tests/fixtures/commands/download")
+    parser = ArgumentParser(command)
     assert isinstance(parser.parse_args([f"--var={value}"]).var, eval(type))
     assert parser.parse_args([f"--var={value}"]).var == value
 

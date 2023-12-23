@@ -1,6 +1,6 @@
 from argparse import ArgumentParser as StdlibArgumentParser
 
-from xetl.models.transform import Transform
+from xetl.models.command import Command
 
 
 def arg_name_for_env(env_name: str) -> str:
@@ -12,8 +12,8 @@ def arg_name_for_env(env_name: str) -> str:
     return long_name
 
 
-def add_arguments(argparser: "ArgumentParser", transform: Transform):
-    for var, var_info in transform.env.items():
+def add_arguments(argparser: "ArgumentParser", command: Command):
+    for var, var_info in command.env.items():
         argparser.add_argument(
             f"--{arg_name_for_env(var)}",
             type=var_info.type or str,
@@ -24,14 +24,14 @@ def add_arguments(argparser: "ArgumentParser", transform: Transform):
 
 
 class ArgumentParser(StdlibArgumentParser):
-    def __init__(self, transform: Transform | str, name: str | None = None):
+    def __init__(self, command: Command | str, name: str | None = None):
         """
-        Create a preconfigured argument parser from a transform's manifest file.
+        Create a preconfigured argument parser from a command's manifest file.
         """
-        transform = transform if isinstance(transform, Transform) else Transform.from_file(transform)
-        super().__init__(name or transform.run_command, description=transform.description)
-        add_arguments(self, transform)
-        # TODO: configure parser with transform.env
+        command = command if isinstance(command, Command) else Command.from_file(command)
+        super().__init__(name or command.run_command, description=command.description)
+        add_arguments(self, command)
+        # TODO: configure parser with command.env
 
     def parse_args(self, args=None, namespace=None):
         # TODO: check environment and merge with sys.argv

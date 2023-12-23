@@ -9,9 +9,9 @@ import sys
 
 class LogContext(Enum):
     NONE = 0
-    APP = 1
-    JOB = 2
-    STEP = 3
+    JOB = 1
+    TASK = 2
+    COMMAND = 3
 
 
 @dataclass
@@ -24,23 +24,23 @@ class Decorators:
 
 log_decorations = {
     LogContext.NONE: Decorators(record_prefix="", header_prefix="", footer_prefix="", header_suffix=""),
-    LogContext.APP: Decorators(
+    LogContext.JOB: Decorators(
         header_prefix="╭" + "─" * 2 + "╴",
         record_prefix="│",
         footer_prefix="╰" + "─" * 2 + "╴",
         header_suffix=" ╶╴╴╶ ╶",
     ),
-    LogContext.JOB: Decorators(
-        header_prefix="╔" + "═" * 2 + "╸",
-        record_prefix="║",
-        footer_prefix="╚" + "═" * 2 + "╸",
-        header_suffix=" ═╴╴╶ ╶",
-    ),
-    LogContext.STEP: Decorators(
-        header_prefix="║┏" + "━" * 2 + "╸",
-        record_prefix="║┃",
-        footer_prefix="║┗" + "━" * 2 + "╸",
+    LogContext.TASK: Decorators(
+        header_prefix="┏" + "━" * 2 + "╸",
+        record_prefix="┃",
+        footer_prefix="┗" + "━" * 2 + "╸",
         header_suffix=" ━╴╴╶ ╶",
+    ),
+    LogContext.COMMAND: Decorators(
+        header_prefix="┃╭" + "─" * 2 + "╴",
+        record_prefix="┃│",
+        footer_prefix="┃╰" + "─" * 2 + "╴",
+        header_suffix=" ─╴╴╶ ╶",
     ),
 }
 
@@ -110,7 +110,7 @@ class NestedFormatter(logging.Formatter):
                 log_format = f"{prefix}{colored(message, Color.BRIGHT_WHITE)}{suffix}"
             case LogLineType.NORMAL:
                 prefix = colored(log_decorations[self.context].record_prefix, Color.BLUE)
-                if self.context in (LogContext.NONE, LogContext.APP, LogContext.JOB):
+                if self.context in (LogContext.NONE, LogContext.JOB, LogContext.TASK):
                     prefix = f"{prefix} " if prefix else ""
                     log_format = f"{prefix}{message}"
                 else:

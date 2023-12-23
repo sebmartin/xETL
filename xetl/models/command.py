@@ -8,18 +8,18 @@ from typing import Any, Type
 from pydantic import BaseModel, ValidationError, field_validator, model_validator
 
 from xetl.models import EnvVariableType
-from xetl.models.step import Step
+from xetl.models.task import Task
 from xetl.models.utils.dicts import conform_env_key, conform_key
 from xetl.models.utils.io import InvalidManifestError, ManifestLoadError, load_file, parse_yaml
 
 logger = logging.getLogger(__name__)
 
 
-class UnknownTransformError(Exception):
+class UnknownCommandError(Exception):
     pass
 
 
-class TransformFailure(Exception):
+class CommandFailure(Exception):
     def __init__(self, returncode: int) -> None:
         super().__init__()
         self.returncode = returncode
@@ -27,7 +27,7 @@ class TransformFailure(Exception):
 
 class EnvType(Enum):
     """
-    Types of environments that a transform can run in.
+    Types of environments that a command can run in.
     """
 
     PYTHON = "python"
@@ -69,39 +69,39 @@ class InputDetails(BaseModel):
         return value
 
 
-class Transform(BaseModel):
+class Command(BaseModel):
     """
-    A transform is a single unit of work that can be executed in an app. You can think of a transform as a
-    mini-application that accepts inputs in the form of ENV variables, does some work, and produces some
-    output. These inputs are variable which makes transforms re-usable in different contexts.
+    A command is a single unit of work that can be executed in an job. You can think of a command as a
+    mini-job that accepts inputs in the form of ENV variables, does some work, and produces some
+    output. These inputs are variable which makes commands re-usable in different contexts.
     """
 
     name: str
     """
-    The name of the transform. This is used to identify the transform from a job step. The name matching is
-    case insensitive (`MyTransform` is equivalent to `mytransform` but not `my-transform`). The name should
+    The name of the command. This is used to identify the command from a job task. The name matching is
+    case insensitive (`MyCommand` is equivalent to `mycommand` but not `my-command`). The name should
     contain only:
         - alphanumeric characters
         - underscores
         - dashes
-    This is not (yet) enforced but is good practice to avoid issues with matching jobs to their transforms.
+    This is not (yet) enforced but is good practice to avoid issues with matching tasks to their commands.
     """
 
     description: str | None = None
     """
-    An optional description of the transform. This can be any string value. This is purely metadata and has no
-    functional impact on the transform.
+    An optional description of the command. This can be any string value. This is purely metadata and has no
+    functional impact on the command.
     """
 
     path: str
     """
-    The path to the directory containing the transform. This is used as the working directory when executing
-    the transform's run command.
+    The path to the directory containing the command. This will be used as the working directory when the
+    command is executed.
     """
 
     env_type: EnvType
     """
-    The type of environment that the transform will run in. This determines how the run command is executed
+    The type of environment that the command will run in. This determines how the run command is executed
     and can currently accept one of the following values:
         - `python`: The run command is executed as a python script.
         - `bash`: The run command is executed as a bash command.
@@ -109,36 +109,36 @@ class Transform(BaseModel):
 
     env: dict[str, InputDetails] = {}
     """
-    A dictionary of environment variable inputs for the transform's run command. This instructs the runtime
-    engine which environment variables to pass to the transform when executing it. When the transform is
+    A dictionary of environment variable inputs for the command's run command. This instructs the runtime
+    engine which environment variables to pass to the command when executing it. When the command is
     executed, the runtime engine will pass the values of these environment variables (provided by the job
-    step) to the transform as environment variables. The transform can then use these values to control its
+    task) to the command as environment variables. The command can then use these values to control its
     behaviour.
 
     In its simplest form, the keys are the names of the ENV variables and the values are a text description
-    for each variable. The descriptions are purely metadata and have no functional impact on the transform.
+    for each variable. The descriptions are purely metadata and have no functional impact on the command.
 
     e.g.
     ```
         env:
-            MY_INPUT: A value that is use as the input for the transform
-            MY_OUTPUT: A path where the transform will save its output
+            MY_INPUT: A value that is use as the input for the command
+            MY_OUTPUT: A path where the command will save its output
     ```
 
     It's also possible to specify additional details for each input. The following details can be specified:
         - `description`: A text description of the input. This is purely metadata and has no functional
-            impact on the transform.
+            impact on the command.
         - `required`: A boolean value indicating whether the input is required. If `True`, the runtime engine
-            will raise an error if the input is not provided by the job step. If `False`, the runtime engine
-            will not raise an error if the input is not provided by the job step and the ENV variable will not
-            be set when executing the transform.
+            will raise an error if the input is not provided by the job task. If `False`, the runtime engine
+            will not raise an error if the input is not provided by the job task and the ENV variable will not
+            be set when executing the command.
         - `optional`: A boolean value indicating whether the input is optional. This is just a convenience
             alias for `required` and is mutually exclusive with `required`.
-        - `default`: The default value to use for the input if it is not provided by the job step. This value
-            is only used if the input is not required and is not provided by the job step. An exception is
+        - `default`: The default value to use for the input if it is not provided by the job task. This value
+            is only used if the input is not required and is not provided by the job task. An exception is
             raised if a default value is specified for a required input.
         - `type`: The data type of the input. This is used to validate the value of the input provided by the job
-            step (at runtime). If the value provided by the job step is not of the specified type, an exception
+            task (at runtime). If the value provided by the job task is not of the specified type, an exception
             is raised. The following types are supported:
                 - `string`: A string value (also accepts `str`)
                 - `integer`: An integer value (also accepts `int`)
@@ -149,11 +149,11 @@ class Transform(BaseModel):
             ```
                 env:
                     MY_INPUT:
-                        description: A value that is use as the input for the transform
+                        description: A value that is use as the input for the command
                         required: true
                         type: string
                     MY_OUTPUT:
-                        description: A path where the transform will save its output
+                        description: A path where the command will save its output
                         required: true
                         type: string
             ```
@@ -161,8 +161,8 @@ class Transform(BaseModel):
 
     run_command: str
     """
-    The command to execute when running the transform. The command is executed in with the "working directory"
-    set to the value in the `path` property (typically the directory containing the transform's manifest.yml file)
+    The command to execute when running the command. The command is executed in with the "working directory"
+    set to the value in the `path` property (typically the directory containing the command's manifest.yml file)
     and executes with the ENV variables set (see the `env` property). The command depends on the `env_type`
     which has some impact on the environment in which the command is executed.
 
@@ -176,14 +176,14 @@ class Transform(BaseModel):
 
     test_command: str | None = None
     """
-    An optional command to execute when running the transform's tests. This is currently experimental and not
+    An optional command to execute when running the command's tests. This is currently experimental and not
     completely implemented. The idea is to be able to build some ergonomics around being able to run all tests
-    for all transforms regardless of their implementation (python, bash, rust, etc.)
+    for all commands regardless of their implementation (python, bash, rust, etc.)
     """  # TODO: add a command for this to the CLI
 
     @classmethod
-    def from_file(cls, path: str) -> "Transform":
-        logger.info(f"Loading transform at: {path}")
+    def from_file(cls, path: str) -> "Command":
+        logger.info(f"Loading command at: {path}")
         yaml_content = load_file(path)
         try:
             return cls.from_yaml(yaml_content, path=os.path.dirname(path))
@@ -191,7 +191,7 @@ class Transform(BaseModel):
             raise ManifestLoadError(f"Could not load YAML file at path: {path}") from e
 
     @classmethod
-    def from_yaml(cls, yaml_content: str, path: str) -> "Transform":
+    def from_yaml(cls, yaml_content: str, path: str) -> "Command":
         manifest = parse_yaml(yaml_content)
         manifest["path"] = path
         return cls(**manifest)
@@ -218,7 +218,7 @@ class Transform(BaseModel):
             invalid_keys = [str(key) for key in data if not isinstance(key, str)]
             if invalid_keys:
                 raise ValueError(
-                    f"Transform env names must be strings, the following are invalid: {', '.join(invalid_keys)}"
+                    f"Command env names must be strings, the following are invalid: {', '.join(invalid_keys)}"
                 )
             data = {key: "N/A" for key in data}
         return {conform_env_key(key): conform_value(value) for key, value in data.items()}
@@ -230,29 +230,29 @@ class Transform(BaseModel):
             return data.lower()
         return data
 
-    def execute(self, step: Step, dryrun: bool = False) -> int:
+    def execute(self, task: Task, dryrun: bool = False) -> int:
         """
-        Execute the transform with inputs from a given step.
+        Execute the command with inputs from a given task.
         """
 
-        if unknown_inputs := [input for input in step.env.keys() if conform_env_key(input) not in self.env]:
+        if unknown_inputs := [input for input in task.env.keys() if conform_env_key(input) not in self.env]:
             logger.warning(
-                f"Ignoring unknown env variable{'s' if len(unknown_inputs) > 1 else ''} for transform `{self.name}`: {', '.join(unknown_inputs)}. "
+                f"Ignoring unknown env variable{'s' if len(unknown_inputs) > 1 else ''} for command `{self.name}`: {', '.join(unknown_inputs)}. "
                 f"Valid names are: {', '.join(self.env.keys())}"
             )
 
         if missing_inputs := [
-            input for input, details in self.env.items() if details.required and input not in step.env
+            input for input, details in self.env.items() if details.required and input not in task.env
         ]:
             raise ValueError(
-                f"Missing required input{'s' if len(missing_inputs) > 1 else ''} for transform `{self.name}`: {', '.join(missing_inputs)}"
+                f"Missing required input{'s' if len(missing_inputs) > 1 else ''} for command `{self.name}`: {', '.join(missing_inputs)}"
             )
 
         if invalid_envs := [
             (env_key, value, expected_type)
             for env_key, value, expected_type in [
                 (env_key, value, self.env[conform_env_key(env_key)].type)
-                for env_key, value in step.env.items()
+                for env_key, value in task.env.items()
                 if conform_env_key(env_key) in self.env
             ]
             if expected_type not in (Any, None) and not isinstance(value, expected_type)
@@ -261,9 +261,9 @@ class Transform(BaseModel):
                 f" - {env_key}: expected `{expected_type.__name__}`, received `{type(value).__name__}`"
                 for env_key, value, expected_type in invalid_envs
             ]
-            raise ValueError(f"Invalid env values for transform `{self.name}`:\n" + "\n".join(details))
+            raise ValueError(f"Invalid env values for command `{self.name}`:\n" + "\n".join(details))
 
-        inputs_env = {conform_env_key(key): str(value) for (key, value) in step.env.items()}
+        inputs_env = {conform_env_key(key): str(value) for (key, value) in task.env.items()}
 
         match self.env_type:
             case EnvType.PYTHON:
@@ -309,37 +309,37 @@ class Transform(BaseModel):
             return process.returncode
 
 
-def discover_transforms(transforms_repo_path: str | list[str]) -> dict[str, Transform]:
+def discover_commands(commands_repo_path: str | list[str]) -> dict[str, Command]:
     """
-    Walks a directory and loads all transforms found in subdirectories. Transforms are identified by the presence of a
+    Walks a directory and loads all commands found in subdirectories. Commands are identified by the presence of a
     manifest.yml file in the directory. The manifest file must contain a `name` and `run-command` field.
-    Returns a dictionary of transforms keyed by their name.
+    Returns a dictionary of commands keyed by their name.
     """
-    transforms: dict[str, Transform] = {}
+    commands: dict[str, Command] = {}
 
     # handle multiple paths
-    if isinstance(transforms_repo_path, list):
-        for path in transforms_repo_path:
-            transforms.update(discover_transforms(path))
-        return transforms
+    if isinstance(commands_repo_path, list):
+        for path in commands_repo_path:
+            commands.update(discover_commands(path))
+        return commands
 
     # handle single path
-    transforms_paths = [path[0] for path in os.walk(transforms_repo_path) if "manifest.yml" in path[2]]
-    for path in transforms_paths:
+    commands_paths = [path[0] for path in os.walk(commands_repo_path) if "manifest.yml" in path[2]]
+    for path in commands_paths:
         # ignore manifests in tests directories
         if path.endswith("/tests"):
             continue
-        if "/tests/" in path and path.split("/tests/")[0] in transforms_paths:
+        if "/tests/" in path and path.split("/tests/")[0] in commands_paths:
             continue
 
         try:
-            transform = Transform.from_file(f"{path}/manifest.yml")
-            transforms[transform.name] = transform
+            command = Command.from_file(f"{path}/manifest.yml")
+            commands[command.name] = command
         except ValidationError as e:
-            logger.warning(f"Skipping transform due to validation error: {e}")  # TODO: test this
+            logger.warning(f"Skipping command due to validation error: {e}")  # TODO: test this
         except (ManifestLoadError, InvalidManifestError) as e:
-            logger.warning(f"Skipping transform due to error: {str(e)}")  # TODO: test this
+            logger.warning(f"Skipping command due to error: {str(e)}")  # TODO: test this
         except Exception as e:
-            logger.warning(f"Skipping transform due to unexpected error: {e}")  # TODO: test this
+            logger.warning(f"Skipping command due to unexpected error: {e}")  # TODO: test this
 
-    return transforms
+    return commands

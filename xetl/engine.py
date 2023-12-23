@@ -5,11 +5,11 @@ from pprint import pprint
 import yaml
 
 from xetl.logging import LogContext, log_context
-from xetl.models.app import App
-from xetl.models.step import Step
-from xetl.models.transform import Transform, TransformFailure, UnknownTransformError, discover_transforms
+from xetl.models.job import Job
+from xetl.models.task import Task
+from xetl.models.command import Command, CommandFailure, UnknownCommandError, discover_commands
 
-TRANSFORMS_REPO_PATH = os.path.abspath(os.path.dirname(__file__) + "/transforms")
+COMMANDS_REPO_PATH = os.path.abspath(os.path.dirname(__file__) + "/commands")
 
 logger = logging.getLogger(__name__)
 
@@ -19,14 +19,14 @@ class NoAliasDumper(yaml.SafeDumper):
         return True
 
 
-def execute_app(manifest_path: str, skip_to: str | None = None, dryrun=False):
-    app = App.from_file(manifest_path)
-    with log_context(LogContext.APP, "Executing app: {}".format(app.name)):
+def execute_job(manifest_path: str, skip_to: str | None = None, dryrun=False):
+    job = Job.from_file(manifest_path)
+    with log_context(LogContext.JOB, "Executing job: {}".format(job.name)):
         if dryrun:
             logger.info("Manifest parsed as:")
             for line in (
                 yaml.dump(
-                    app.model_dump(exclude_unset=True),
+                    job.model_dump(exclude_unset=True),
                     Dumper=NoAliasDumper,
                     sort_keys=False,
                 )
@@ -35,65 +35,54 @@ def execute_app(manifest_path: str, skip_to: str | None = None, dryrun=False):
             ):
                 logger.info("  " + line)
         else:
-            logger.info("Parsed manifest for app: {}".format(app.name))
+            logger.info("Parsed manifest for job: {}".format(job.name))
 
-        if transforms_repo_paths := app.transforms:
-            logger.info(f"Discovering transforms at paths: {transforms_repo_paths}")
-            transforms = discover_transforms(transforms_repo_paths)
-            if not transforms:
-                logger.error("Could not find any transforms at paths {}".format(transforms_repo_paths))
+        if commands_repo_paths := job.commands:
+            logger.info(f"Discovering commands at paths: {commands_repo_paths}")
+            commands = discover_commands(commands_repo_paths)
+            if not commands:
+                logger.error("Could not find any commands at paths {}".format(commands_repo_paths))
                 return
         else:
-            logger.warning(
-                "The property `transforms` is not defined in the app manifest, no transforms will be available"
-            )
-            transforms = {}
-        logger.info(f"Available transforms detected:")
-        for t in transforms.values():
+            logger.warning("The property `commands` is not defined in the job manifest, no commands will be available")
+            commands = {}
+        logger.info(f"Available commands detected:")
+        for t in commands.values():
             logger.info(f" - {t.name}")
 
-        for job_name, steps in app.jobs.items():
-            with log_context(LogContext.JOB, f"Executing job: {job_name}"):
-                if skip_to:
-                    if job_name != skip_to and f"{job_name}." not in skip_to:
-                        logger.warning("Skipping this job...")
-                        continue
-
-                    if "." in skip_to:
-                        while steps:
-                            if skip_to.endswith(f".{steps[0].name}"):
-                                break
-                            logger.warning(f"Skipping step: {steps[0].name or steps[0].transform}")
-                            del steps[0]
-                    skip_to = None
-
-                execute_job_steps(job_name, steps, transforms, dryrun)
+        # Rudimentary implementation, a more robust implementation would consider a complex DAG of tasks
+        if skip_to and job.tasks:
+            while not job.tasks[0].name or job.tasks[0].name.lower() != skip_to.lower():
+                logger.warning(f"Skipping task: {job.tasks[0].name or job.tasks[0].command}")
+                del job.tasks[0]
+        execute_job_tasks(job.name, job.tasks, commands, dryrun)
 
         logger.info("Done! \\o/")
 
 
-def execute_job_steps(job_name: str, steps: list[Step], transforms: dict[str, Transform], dryrun: bool):
-    for i, step in enumerate(steps):
-        if i > 0:
-            logger.info("")
-        logger.info(f"Executing step {f'{i + 1}'} of {len(steps)}")
-        for line in yaml.dump(step.model_dump(), indent=2, sort_keys=False).strip().split("\n"):
-            logger.info("  " + line)
-        with log_context(LogContext.STEP, f"Executing transform: {step.transform}") as tail:
-            if step.skip:
-                logger.warning(f"Skipping step `{step.name or f'#{i + 1}'}` from job '{job_name}'")
-                continue
-            returncode = execute_job_step(step, transforms, dryrun)
-            tail(f"Return code: {returncode}")
+def execute_job_tasks(job_name: str, tasks: list[Task], commands: dict[str, Command], dryrun: bool):
+    for i, task in enumerate(tasks):
+        # logger.info(f"Executing task {f'{i + 1}'} of {len(tasks)}")
+        with log_context(LogContext.TASK, f"Executing task {f'{i + 1}'} of {len(tasks)}"):
+            for line in yaml.dump(task.model_dump(), indent=2, sort_keys=False).strip().split("\n"):
+                logger.info("  " + line)
+            with log_context(LogContext.COMMAND, f"Executing command: {task.command}") as tail:
+                if task.skip:
+                    logger.warning(f"Skipping task `{task.name or f'#{i + 1}'}` from job '{job_name}'")
+                    continue
+                returncode = execute_job_task(task, commands, dryrun)
+                tail(f"Return code: {returncode}")
+            if i < len(tasks) - 1:
+                logger.info("")  # leave a blank line between tasks
 
         if returncode != 0:
-            raise TransformFailure(returncode=returncode)
+            raise CommandFailure(returncode=returncode)
 
 
-def execute_job_step(step: Step, transforms: dict[str, Transform], dryrun) -> int:
-    name = step.transform
+def execute_job_task(task: Task, commands: dict[str, Command], dryrun) -> int:
+    command_name = task.command
 
-    if transform := transforms.get(name):
-        return transform.execute(step, dryrun)  # TODO: no unit tests hit this
+    if command := commands.get(command_name):
+        return command.execute(task, dryrun)  # TODO: no unit tests hit this
     else:
-        raise UnknownTransformError(f"Unknown transform `{name}`, should be one of: {sorted(transforms.keys())}")
+        raise UnknownCommandError(f"Unknown command `{command_name}`, should be one of: {sorted(commands.keys())}")

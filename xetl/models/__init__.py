@@ -1,6 +1,6 @@
 from typing import TypeAlias
 
-
+# TODO: rename to CommandVariableType? CommandInputType?
 EnvVariableType: TypeAlias = str | int | float | bool | None  # TODO: support lists and dicts?
 """Type alias for environment variable value types"""
 

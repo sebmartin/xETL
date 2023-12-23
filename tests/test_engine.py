@@ -4,204 +4,166 @@ import pytest
 import mock
 
 from xetl import engine
-from xetl.models.step import Step
-from xetl.models.transform import Transform, TransformFailure, UnknownTransformError
+from xetl.models.task import Task
+from xetl.models.command import Command, CommandFailure, UnknownCommandError
 
 
-def app_file(app_yaml: str, tmpdir):
-    path = os.path.join(tmpdir, "app.yml")
+def job_file(job_yaml: str, tmpdir):
+    path = os.path.join(tmpdir, "job.yml")
     with open(path, "w") as fd:
-        fd.write(app_yaml)
+        fd.write(job_yaml)
     return path
 
 
 @mock.patch("subprocess.run", mock.Mock())
-class TestAppManifest(object):
-    @mock.patch("xetl.engine.execute_job_step", return_value=0)
-    def test_execute_app_simple_job(self, execute_job_step, app_manifest_simple_path, transforms_fixtures_path):
-        engine.execute_app(app_manifest_simple_path)
+class TestJobManifest(object):
+    @mock.patch("xetl.engine.execute_job_task", return_value=0)
+    def test_execute_job_simple_job(self, execute_job_task, job_manifest_simple_path):
+        engine.execute_job(job_manifest_simple_path)
 
-        assert execute_job_step.call_count == 1, "`execute_job_step` was called an unexpected number of times"
-        actual_steps = [call[1].get("step") or call[0][0] for call in execute_job_step.call_args_list]
-        actual_transforms = [call[1].get("transforms") or call[0][1] for call in execute_job_step.call_args_list]
-        actual_dryruns = [call[1].get("dryrun") or call[0][2] for call in execute_job_step.call_args_list]
+        assert execute_job_task.call_count == 1, "`execute_job_task` was called an unexpected number of times"
+        actual_tasks = [call[1].get("task") or call[0][0] for call in execute_job_task.call_args_list]
+        actual_commands = [call[1].get("commands") or call[0][1] for call in execute_job_task.call_args_list]
+        actual_dryruns = [call[1].get("dryrun") or call[0][2] for call in execute_job_task.call_args_list]
 
-        assert actual_steps == [
-            Step(
-                transform="download",
+        assert actual_tasks == [
+            Task(
+                command="download",
                 env={
-                    "APP_VAR": "app-var-value",
+                    "JOB_VAR": "job-var-value",
                     "BASE_URL": "http://example.com/data",
                     "THROTTLE": 1000,
                     "OUTPUT": "/tmp/data",
                 },
             )
         ]
-        actual_transform = actual_transforms[0]
+        actual_command = actual_commands[0]
         assert all(
-            actual_transform == p for p in actual_transforms
-        ), "Each call to `execute_job_step` should have passed the same transforms dict"
-        assert sorted(actual_transform.keys()) == ["download", "parser", "splitter"]
-        assert all(isinstance(t, Transform) for t in actual_transform.values())
+            actual_command == p for p in actual_commands
+        ), "Each call to `execute_job_task` should have passed the same commands dict"
+        assert sorted(actual_command.keys()) == ["download", "parser", "splitter"]
+        assert all(isinstance(t, Command) for t in actual_command.values())
         assert all(dryrun is False for dryrun in actual_dryruns)
 
-    @mock.patch("xetl.engine.execute_job_steps")
-    @pytest.mark.parametrize("dryrun", [True, False])
-    def test_execute_app_multiple_single_step_jobs(
-        self, execute_job_steps, dryrun, app_manifest_multiple_single_step_jobs_path, transforms_fixtures_path
+    @mock.patch("xetl.engine.execute_job_tasks")
+    def test_execute_job_multiple_tasks(
+        self, execute_job_tasks, job_manifest_multiple_tasks_path, commands_fixtures_path, tmpdir
     ):
-        engine.execute_app(app_manifest_multiple_single_step_jobs_path, dryrun=dryrun)
+        engine.execute_job(job_manifest_multiple_tasks_path)
 
-        assert execute_job_steps.call_count == 2, "`execute_job_steps` was called an unexpected number of times"
+        assert execute_job_tasks.call_count == 1, "`execute_job_tasks` was called an unexpected number of times"
 
         # check the job_name argument for each call
-        actual_job_names = [call[1].get("job_name") or call[0][0] for call in execute_job_steps.call_args_list]
-        assert actual_job_names == ["download", "split"]
+        actual_job_names = [call[1].get("job_name") or call[0][0] for call in execute_job_tasks.call_args_list]
+        assert actual_job_names == ["Multiple job manifest"]
 
-        # check the steps argument for each call
-        actual_steps = [call[1].get("steps") or call[0][1] for call in execute_job_steps.call_args_list]
-        actual_steps_names = [[step.transform for step in steps] for steps in actual_steps]
-        assert actual_steps_names == [["download"], ["splitter"]]
+        # check the tasks argument for each call
+        actual_tasks = [call[1].get("tasks") or call[0][1] for call in execute_job_tasks.call_args_list]
+        actual_tasks_names = [[task.command for task in tasks] for tasks in actual_tasks]
+        assert actual_tasks_names == [["download", "splitter"]]
 
-        # check the transforms argument for each call
-        actual_transforms = [call[1].get("transforms") or call[0][2] for call in execute_job_steps.call_args_list]
-        actual_transform = actual_transforms[0]
-        assert sorted(actual_transform.keys()) == ["download", "parser", "splitter"]
+        # check the commands argument for each call
+        actual_commands = [call[1].get("commands") or call[0][2] for call in execute_job_tasks.call_args_list]
+        actual_command = actual_commands[0]
+        assert sorted(actual_command.keys()) == ["download", "parser", "splitter"]
         assert all(
-            actual_transform == p for p in actual_transforms
-        ), "Each call to `execute_job_steps` should have passed the same transforms dict"
+            actual_command == p for p in actual_commands
+        ), "Each call to `execute_job_tasks` should have passed the same commands dict"
 
-        # check the dryrun argument for each call
-        actual_dryruns = [call[1].get("dryrun") or call[0][3] for call in execute_job_steps.call_args_list]
-        assert all(actual_dryrun == dryrun for actual_dryrun in actual_dryruns), "Unexpected dryruns: {}".format(
-            list(actual_dryruns)
-        )
-
-        assert all(actual_dryrun == dryrun for actual_dryrun in actual_dryruns), "Unexpected dryruns: {}".format(
-            list(actual_dryruns)
-        )
-
-    @mock.patch("xetl.engine.execute_job_steps")
-    def test_execute_app_one_job_multiple_steps(
-        self, execute_job_steps, app_manifest_single_multiple_step_job_path, transforms_fixtures_path, tmpdir
+    @mock.patch("xetl.engine.execute_job_task", return_value=127)
+    def test_execute_job_stops_if_task_fails(
+        self, execute_job_task, job_manifest_multiple_tasks_path, commands_fixtures_path, tmpdir
     ):
-        engine.execute_app(app_manifest_single_multiple_step_job_path)
+        with pytest.raises(CommandFailure) as excinfo:
+            engine.execute_job(job_manifest_multiple_tasks_path)
 
-        assert execute_job_steps.call_count == 1, "`execute_job_steps` was called an unexpected number of times"
+        assert execute_job_task.call_count == 1, "execute_job_task() should have only been called once"
+        assert excinfo.value.returncode == 127, "The exception should contain the return code of the failed command"
 
-        # check the job_name argument for each call
-        actual_job_names = [call[1].get("job_name") or call[0][0] for call in execute_job_steps.call_args_list]
-        assert actual_job_names == ["download"]
-
-        # check the steps argument for each call
-        actual_steps = [call[1].get("steps") or call[0][1] for call in execute_job_steps.call_args_list]
-        actual_steps_names = [[step.transform for step in steps] for steps in actual_steps]
-        assert actual_steps_names == [["download", "splitter"]]
-
-        # check the transforms argument for each call
-        actual_transforms = [call[1].get("transforms") or call[0][2] for call in execute_job_steps.call_args_list]
-        actual_transform = actual_transforms[0]
-        assert sorted(actual_transform.keys()) == ["download", "parser", "splitter"]
-        assert all(
-            actual_transform == p for p in actual_transforms
-        ), "Each call to `execute_job_steps` should have passed the same transforms dict"
-
-    @mock.patch("xetl.engine.execute_job_step", return_value=127)
-    def test_execute_app_stops_if_step_fails(
-        self, execute_job_step, app_manifest_single_multiple_step_job_path, transforms_fixtures_path, tmpdir
-    ):
-        with pytest.raises(TransformFailure) as excinfo:
-            engine.execute_app(app_manifest_single_multiple_step_job_path)
-
-        assert execute_job_step.call_count == 1, "execute_job_step() should have only been called once"
-        assert excinfo.value.returncode == 127, "The exception should contain the return code of the failed transform"
-
-    @mock.patch("xetl.engine.execute_job_steps")
-    def test_execute_app_without_transforms_path_warns(self, execute_job_steps, tmpdir, caplog):
+    @mock.patch("xetl.engine.execute_job_tasks")
+    def test_execute_job_without_commands_path_warns(self, execute_job_tasks, tmpdir, caplog):
         manifest = dedent(
             """
             name: Job without manifests
             data: /data
-            jobs: {}
+            tasks: []
             """
         )
-        engine.execute_app(app_file(manifest, str(tmpdir)))
+        engine.execute_job(job_file(manifest, str(tmpdir)))
         assert (
-            "The property `transforms` is not defined in the app manifest, no transforms will be available"
+            "The property `commands` is not defined in the job manifest, no commands will be available"
             in caplog.messages
         )
 
-    @mock.patch("xetl.engine.execute_job_steps")
-    def test_execute_app_no_transforms_found(self, execute_job_steps, tmpdir, caplog):
+    @mock.patch("xetl.engine.execute_job_tasks")
+    def test_execute_job_no_commands_found(self, execute_job_tasks, tmpdir, caplog):
         manifest = dedent(
             """
             name: Job without manifests
             data: /data
-            transforms: /tmp/does-not-exist
-            jobs: {}
+            commands: /tmp/does-not-exist
+            tasks: []
             """
         )
-        engine.execute_app(app_file(manifest, str(tmpdir)))
-        assert "Could not find any transforms at paths ['/tmp/does-not-exist']" in caplog.messages
+        engine.execute_job(job_file(manifest, str(tmpdir)))
+        assert "Could not find any commands at paths ['/tmp/does-not-exist']" in caplog.messages
 
-    @mock.patch("xetl.models.transform.Transform.execute", return_value=127)
-    def test_execute_app_with_unknown_transform(
-        self, transform_execute, app_manifest_simple, transforms_fixtures_path, tmpdir
+    @mock.patch("xetl.models.command.Command.execute", return_value=127)
+    def test_execute_job_with_unknown_command(
+        self, command_execute, job_manifest_simple, commands_fixtures_path, tmpdir
     ):
-        manifest = app_manifest_simple.replace("transform: download", "transform: unknown")
-        with pytest.raises(UnknownTransformError) as excinfo:
-            engine.execute_app(app_file(manifest, tmpdir))
+        manifest = job_manifest_simple.replace("command: download", "command: unknown")
+        with pytest.raises(UnknownCommandError) as excinfo:
+            engine.execute_job(job_file(manifest, tmpdir))
 
-        assert str(excinfo.value) == "Unknown transform `unknown`, should be one of: ['download', 'parser', 'splitter']"
-        transform_execute.assert_not_called()
+        assert str(excinfo.value) == "Unknown command `unknown`, should be one of: ['download', 'parser', 'splitter']"
+        command_execute.assert_not_called()
 
     @pytest.mark.parametrize(
-        "skip_to, expected_steps",
+        "skip_to, expected_tasks",
         [
-            ("download-1", [["download-1", "splitter-1"], ["download-2", "splitter-2"]]),
-            ("download-2", [["download-2", "splitter-2"]]),
-            ("download-1.splitter-1", [["splitter-1"], ["download-2", "splitter-2"]]),
-            ("download-2.splitter-2", [["splitter-2"]]),
+            ("download", [["Download", "Splitter"]]),
+            ("splitter", [["Splitter"]]),
+            ("SPLITTER", [["Splitter"]]),
         ],
-        ids=["skip-to-job-1", "skip-to-job-2", "skip-to-job1-step-2", "skip-to-job2-step-2"],
+        ids=["skip-to-task-1", "skip-to-task-2", "case-insensitive"],
     )
-    @mock.patch("xetl.engine.execute_job_steps")
-    def test_execute_app_skip_to(
+    @mock.patch("xetl.engine.execute_job_tasks")
+    def test_execute_job_skip_to(
         self,
-        execute_job_steps,
+        execute_job_tasks,
         skip_to,
-        expected_steps,
-        app_manifest_multiple_jobs_with_multiples_path,
+        expected_tasks,
+        job_manifest_multiple_tasks_path,
     ):
-        engine.execute_app(app_manifest_multiple_jobs_with_multiples_path, skip_to=skip_to)
+        engine.execute_job(job_manifest_multiple_tasks_path, skip_to=skip_to)
 
-        actual_steps = [call[1].get("steps") or call[0][1] for call in execute_job_steps.call_args_list]
-        actual_steps_names = [[step.name for step in steps] for steps in actual_steps]
-        assert actual_steps_names == expected_steps
+        actual_tasks = [call[1].get("tasks") or call[0][1] for call in execute_job_tasks.call_args_list]
+        actual_tasks_names = [[task.name for task in tasks] for tasks in actual_tasks]
+        assert actual_tasks_names == expected_tasks
 
-    @mock.patch("xetl.engine.execute_job_step", return_value=0)
-    def test_execute_app_skipped_steps_still_resolve(self, execute_job_step, tmpdir):
-        app_manifest = dedent(
+    @mock.patch("xetl.engine.execute_job_task", return_value=0)
+    def test_execute_job_skipped_tasks_still_resolve(self, execute_job_task, tmpdir):
+        job_manifest = dedent(
             """
             name: Multiple job manifest
             data: /data
-            jobs:
-              download:
-                - name: skipped
-                  transform: download
-                  skip: true
-                  env:
-                    BASE_URL: http://example.com/data1
-                    THROTTLE: 1000
-                    OUTPUT: /tmp/data1/source
-                - name: references-skipped
-                  transform: splitter
-                  env:
-                    SOURCE: ${previous.OUTPUT}
-                    OUTPUT: /tmp/data1/splits
+            tasks:
+              - name: skipped
+                command: download
+                skip: true
+                env:
+                  BASE_URL: http://example.com/data1
+                  THROTTLE: 1000
+                  OUTPUT: /tmp/data1/source
+              - name: references-skipped
+                command: splitter
+                env:
+                  SOURCE: ${previous.OUTPUT}
+                  OUTPUT: /tmp/data1/splits
             """
         )
-        engine.execute_app(app_file(app_manifest, tmpdir))
-        assert execute_job_step.call_count == 1, "execute_job_step() should have only been called once"
-        executed_step = execute_job_step.call_args[0][0]
-        assert executed_step.env["SOURCE"] == "/tmp/data1/source"
+        engine.execute_job(job_file(job_manifest, tmpdir))
+        assert execute_job_task.call_count == 1, "execute_job_task() should have only been called once"
+        executed_task = execute_job_task.call_args[0][0]
+        assert executed_task.env["SOURCE"] == "/tmp/data1/source"

@@ -8,42 +8,41 @@ from typing import Any, Iterable
 from pydantic import BaseModel, field_validator, model_validator
 
 from xetl.models import EnvKeyLookupErrors, EnvVariableType
-from xetl.models.step import Step
+from xetl.models.task import Task
 from xetl.models.utils.dicts import fuzzy_lookup
 from xetl.models.utils.io import parse_yaml, parse_yaml_file
 
 logger = logging.getLogger(__name__)
 
 
-class App(BaseModel):
+class Job(BaseModel):
     """
-    The app is the top level model that defines the structure of the pipeline. An app is composed of jobs,
-    which are composed of steps. Each step executes a transform with arguments that are defined in each step
-    and passed to the transform at runtime.
+    A job serves as the primary model that outlines the structure of the work to be performed. It is comprised of
+    multiple tasks. Each task runs a specific command, with arguments that are defined within the task itself and
+    supplied to the command during execution.
     """
 
     name: str
-    """A name for the app used in logging and other places to identify the app. This can be any string value."""
+    """A name for the job used in logging and other places to identify the job. This can be any string value."""
 
     description: str | None = None
     """
-    An optional description of the app. This can be any string value. This is purely metadata and has no
-    functional impact on the app.
+    An optional description of the job. This can be any string value. This is purely metadata and has no
+    functional impact on the job.
     """
 
     data: str
     """
-    The root directory where the app will store its data. If the directory does not exist, it will be created.
-    This value can be referenced in steps using the `$data` placeholder.
+    The root directory where the job will store its data. If the directory does not exist, it will be created.
+    This value can be referenced in tasks using the `$data` placeholder.
 
     e.g.
     ```
-        jobs:
-          some-job:
-            - transform: my-transform
-              env:
-                INPUT: $data/input.csv
-                OUTPUT: $data/output.csv
+        tasks:
+          - command: my-command
+            env:
+              INPUT: $data/input.csv
+              OUTPUT: $data/output.csv
     ```
     """
 
@@ -59,33 +58,33 @@ class App(BaseModel):
 
     env: dict[str, EnvVariableType] = {}
     """
-    A dictionary of environment variables that can be referenced in job steps. This can be useful for
-    declaring values that are used in multiple steps such as database connection strings.
+    A dictionary of environment variables that can be referenced in job tasks. This can be useful for
+    declaring values that are used in multiple tasks such as database connection strings.
 
-    These values will be available as env variables when running the transform for each step in the app
-    without having to be redefined in each step's env. However, the step's env always takes precedence so
-    it's possible to override the app's env value by specifying a different value in a step's env.
-    """
-
-    transforms: list[str] = []
-    """
-    A path or list of paths containing the transforms that are used in the app. Paths can be an absolute
-    path or a path relative to the app manifest file. If the directory does not exist,
+    These values will be available as env variables when running the command for each task in the job
+    without having to be redefined in each task's env. However, the task's env always takes precedence so
+    it's possible to override the job's env value by specifying a different value in a task's env.
     """
 
-    jobs: dict[str, list["Step"]]
+    commands: list[str] = []
     """
-    A dictionary of jobs. Each job is a list of steps. Each step executes a transform with env variables
-    that are defined in each step and passed to the transform at runtime.
+    A path or list of paths containing the commands that are used in the job. Paths can be an absolute
+    path or a path relative to the job manifest file. If the directory does not exist,
+    """
+
+    tasks: list[Task]
+    """
+    A dictionary of tasks. Each task executes a task with env variables that are defined in each task
+    and passed to the task at runtime.
     """
 
     @classmethod
-    def from_file(cls, path: str) -> "App":
-        logger.info("Loading app manifest at: {}".format(path))
+    def from_file(cls, path: str) -> "Job":
+        logger.info("Loading job manifest at: {}".format(path))
         return cls(**parse_yaml_file(path))
 
     @classmethod
-    def from_yaml(cls, yaml_content: str) -> "App":
+    def from_yaml(cls, yaml_content: str) -> "Job":
         return cls(**parse_yaml(yaml_content))
 
     @model_validator(mode="before")
@@ -98,15 +97,15 @@ class App(BaseModel):
         return data
 
     @model_validator(mode="after")
-    def resolve_placeholders(self) -> "App":
+    def resolve_placeholders(self) -> "Job":
         inherit_env(self)
         propagate_env(self)
         resolve_placeholders(self)
         return self
 
-    @field_validator("transforms", mode="before")
+    @field_validator("commands", mode="before")
     @classmethod
-    def validate_transforms(cls, value: Any):
+    def validate_commands(cls, value: Any):
         if isinstance(value, str):
             value = [value]
         return value
@@ -115,9 +114,9 @@ class App(BaseModel):
 # Validation
 
 
-def inherit_env(app: App):
+def inherit_env(job: Job):
     base_env = {}
-    host_env = app.host_env or []
+    host_env = job.host_env or []
     if "*" in host_env:
         if len(host_env) > 1:
             logger.warning(
@@ -132,19 +131,18 @@ def inherit_env(app: App):
             logger.warning(
                 "The following host environment variables were not found: {}".format(", ".join(missing_keys))
             )
-    base_env = {**base_env, **app.env}
-    app.env = base_env
+    base_env = {**base_env, **job.env}
+    job.env = base_env
 
 
-def propagate_env(app: App):
-    if not app.env:
+def propagate_env(job: Job):
+    if not job.env:
         return
-    for steps in app.jobs.values():
-        for step in steps:
-            step.env = {**app.env, **step.env}
+    for task in job.tasks:
+        task.env = {**job.env, **task.env}
 
 
-def resolve_placeholders(app: App):
+def resolve_placeholders(job: Job):
     def temp_directory(root) -> str:
         if not os.path.exists(root):
             os.makedirs(root)
@@ -182,47 +180,47 @@ def resolve_placeholders(app: App):
             raise ValueError(f"Invalid placeholder `{keys[0]}` in {match}. Valid keys are: {valid_keys}")
 
     def variable_value(
-        names: Iterable[str], current_step: Step, named_steps: dict[str, Step], match: str
+        names: Iterable[str], current_task: Task, named_tasks: dict[str, Task], match: str
     ) -> EnvVariableType:
         # Make case insensitive
         names = [n.lower() for n in names]
 
         # Check for the `data` variable
         if names == ["data"]:
-            return app.data
+            return job.data
 
         # Check for $tmp variables
-        tmpdir = os.path.join(app.data, "tmp")
+        tmpdir = os.path.join(job.data, "tmp")
         if tuple(names) == ("tmp", "dir"):
             return temp_directory(tmpdir)
         elif tuple(names) == ("tmp", "file"):
             return temp_file(tmpdir)
 
-        # Check current step's env
+        # Check current task's env
         try:
-            return get_key_value(current_step.env, names, match)
+            return get_key_value(current_task.env, names, match)
         except EnvKeyLookupErrors:
             pass
 
         # Check for `previous`
-        if names[0] == "previous" and "previous" not in named_steps:
-            raise ValueError("Cannot use $previous placeholder on the first step")
+        if names[0] == "previous" and "previous" not in named_tasks:
+            raise ValueError("Cannot use $previous placeholder on the first task")
 
-        # Resolve from previous step's env
-        if step := fuzzy_lookup(named_steps, names[0]):
-            if isinstance(step, Step):
-                return get_key_value(step.env, names[1:], match)
+        # Resolve from previous task's env
+        if task := fuzzy_lookup(named_tasks, names[0]):
+            if isinstance(task, Task):
+                return get_key_value(task.env, names[1:], match)
 
         # Could not resolve
-        env_keys = ", ".join(sorted(current_step.env.keys()))
-        step_keys = ", ".join(sorted(named_steps.keys()))
+        env_keys = ", ".join(sorted(current_task.env.keys()))
+        task_keys = ", ".join(sorted(named_tasks.keys()))
         raise ValueError(
             f"Invalid name `{names[0]}` in `{match}`. The first must be one of:\n"
-            f" - variable in the current step's env: {env_keys or 'No env variables defined'}\n"
-            f" - name of a previous step: {step_keys or 'No previous steps defined'}"
+            f" - variable in the current task's env: {env_keys or 'No env variables defined'}\n"
+            f" - name of a previous task: {task_keys or 'No previous tasks defined'}"
         )
 
-    def resolve(string: str, current_step: Step, named_steps: dict[str, Step]) -> EnvVariableType:
+    def resolve(string: str, current_task: Task, named_tasks: dict[str, Task]) -> EnvVariableType:
         """
         Parse the placeholder string and resolve it to a value.
         """
@@ -249,7 +247,7 @@ def resolve_placeholders(app: App):
             matched_names = match[1] or match[2]
             names = matched_names.split(".")
 
-            resolved = variable_value(names, current_step, named_steps, match[0])
+            resolved = variable_value(names, current_task, named_tasks, match[0])
             if match.span() == (0, len(string)):
                 # We matched the entire string, retain the original type (e.g. int, float, etc)
                 return resolved
@@ -260,17 +258,17 @@ def resolve_placeholders(app: App):
             pos = match.start() + len(resolved)
         return string
 
-    def traverse_object(model: BaseModel | dict, current_step: Step, named_steps: dict[str, Step]):
+    def traverse_object(model: BaseModel | dict, current_task: Task, named_tasks: dict[str, Task]):
         """
         Look for placeholders (e.g. $previous.OUTPUT) in property (models) or dict values and resolve them.
         """
         items = model.items() if isinstance(model, dict) else model.model_dump().items()
         for key, value in items:
             if isinstance(value, BaseModel | dict):
-                traverse_object(value, current_step, named_steps)
+                traverse_object(value, current_task, named_tasks)
             elif isinstance(value, str):
                 if "$" in value:
-                    value = resolve(value, current_step, named_steps)
+                    value = resolve(value, current_task, named_tasks)
                 if isinstance(value, str) and value.startswith("~/"):
                     # assume it's a path and expand it
                     value = os.path.expanduser(value)
@@ -282,12 +280,11 @@ def resolve_placeholders(app: App):
             elif isinstance(model, BaseModel):
                 setattr(model, key, value)
 
-    # Resolve all app placeholders
-    app.data = os.path.abspath(app.data)
-    for steps in app.jobs.values():
-        named_steps = OrderedDict({})
-        for step in steps:
-            traverse_object(step, step, named_steps)
-            if step.name:
-                named_steps[step.name] = step
-            named_steps["previous"] = step
+    # Resolve all job placeholders
+    job.data = os.path.abspath(job.data)
+    named_tasks = OrderedDict({})
+    for task in job.tasks:
+        traverse_object(task, task, named_tasks)
+        if task.name:
+            named_tasks[task.name] = task
+        named_tasks["previous"] = task
