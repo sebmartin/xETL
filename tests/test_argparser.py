@@ -1,6 +1,8 @@
 import io
+import os
 from textwrap import dedent
 from typing import Generator
+import mock
 import pytest
 
 from xetl.argparse import ArgumentParser
@@ -149,3 +151,113 @@ def test_argument_parser_default():
     parser = ArgumentParser(command)
     assert parser.parse_args([]).var == 1
     assert parser.parse_args(["--var=2"]).var == 2
+
+
+@mock.patch.dict(
+    os.environ,
+    {
+        "URL": "http://www.example.com",
+        "THROTTLE": "1.1",
+        "FOLLOW_REDIRECTS": "true",
+    },
+)
+def test_argument_parser_all_from_env(capsys):
+    yaml = dedent(
+        """
+        name: download
+        description: Download files from a remote server
+        env-type: python
+        env:
+          URL:
+            description: URL to download
+            type: str
+          THROTTLE:
+            description: Seconds to wait between downloads
+            type: float
+          FOLLOW_REDIRECTS:
+            description: Follow HTTP redirects
+            type: bool
+        run-command: python -m download
+        """
+    )
+    command = Command.from_yaml(yaml, "./tests/fixtures/commands/download")
+    try:
+        args = ArgumentParser(command).parse_args([])
+        assert args.url == "http://www.example.com"
+        assert args.throttle == 1.1
+        assert args.follow_redirects == True
+    except SystemExit:
+        pytest.fail("All arguments should have been used from the env, output was:\n" + capsys.readouterr().err)
+
+
+@mock.patch.dict(
+    os.environ,
+    {
+        "THROTTLE": "1.1",
+        "FOLLOW_REDIRECTS": "true",
+    },
+)
+def test_argument_parser_some_from_env(capsys):
+    yaml = dedent(
+        """
+        name: download
+        description: Download files from a remote server
+        env-type: python
+        env:
+          URL:
+            description: URL to download
+            type: str
+          THROTTLE:
+            description: Seconds to wait between downloads
+            type: float
+          FOLLOW_REDIRECTS:
+            description: Follow HTTP redirects
+            type: bool
+        run-command: python -m download
+        """
+    )
+    command = Command.from_yaml(yaml, "./tests/fixtures/commands/download")
+    try:
+        args = ArgumentParser(command).parse_args(["--url=http://www.example.com"])
+        assert args.url == "http://www.example.com"
+        assert args.throttle == 1.1
+        assert args.follow_redirects == True
+    except SystemExit:
+        pytest.fail("All arguments should have been used from the env, output was:\n" + capsys.readouterr().err)
+
+
+@mock.patch.dict(
+    os.environ,
+    {
+        "URL": "http://www.example.com",
+        "THROTTLE": "1.1",
+        "FOLLOW_REDIRECTS": "true",
+    },
+)
+def test_argument_parser_cli_args_override_env(capsys):
+    yaml = dedent(
+        """
+        name: download
+        description: Download files from a remote server
+        env-type: python
+        env:
+          URL:
+            description: URL to download
+            type: str
+          THROTTLE:
+            description: Seconds to wait between downloads
+            type: float
+          FOLLOW_REDIRECTS:
+            description: Follow HTTP redirects
+            type: bool
+        run-command: python -m download
+        """
+    )
+    command = Command.from_yaml(yaml, "./tests/fixtures/commands/download")
+    try:
+        args = ArgumentParser(command).parse_args(["--url=http://www.cli-url.com", "--throttle=2.2"])
+        assert args.url == "http://www.cli-url.com"
+        assert args.throttle == 2.2
+        assert args.follow_redirects == True
+    except SystemExit:
+        pytest.fail("All arguments should have been used from the env, output was:\n" + capsys.readouterr().err)
