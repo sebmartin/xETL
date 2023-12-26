@@ -17,71 +17,45 @@ def job_file(job_yaml: str, tmpdir):
 
 @mock.patch("subprocess.run", mock.Mock())
 class TestJobManifest(object):
-    @mock.patch("xetl.engine.execute_job_task", return_value=0)
-    def test_execute_job_simple_job(self, execute_job_task, job_manifest_simple_path):
+    @mock.patch("xetl.models.command.Command.execute", return_value=0, autospec=True)
+    def test_execute_job_simple_job(self, command_execute, job_manifest_simple_path):
         engine.execute_job(job_manifest_simple_path)
 
-        assert execute_job_task.call_count == 1, "`execute_job_task` was called an unexpected number of times"
-        actual_tasks = [call[1].get("task") or call[0][0] for call in execute_job_task.call_args_list]
-        actual_commands = [call[1].get("commands") or call[0][1] for call in execute_job_task.call_args_list]
-        actual_dryruns = [call[1].get("dryrun") or call[0][2] for call in execute_job_task.call_args_list]
-
-        assert actual_tasks == [
-            Task(
-                command="download",
-                env={
-                    "JOB_VAR": "job-var-value",
-                    "BASE_URL": "http://example.com/data",
-                    "THROTTLE": 1000,
-                    "OUTPUT": "/tmp/data",
-                },
-            )
+        comands_and_tasks = [
+            f"command: {call.args[0].name}, task: {call.args[1].name}, dryrun: {call.args[2]}"
+            for call in command_execute.call_args_list
         ]
-        actual_command = actual_commands[0]
-        assert all(
-            actual_command == p for p in actual_commands
-        ), "Each call to `execute_job_task` should have passed the same commands dict"
-        assert sorted(actual_command.keys()) == ["download", "parser", "splitter"]
-        assert all(isinstance(t, Command) for t in actual_command.values())
-        assert all(dryrun is False for dryrun in actual_dryruns)
+        assert comands_and_tasks == [
+            "command: download, task: Download, dryrun: False",
+        ]
 
-    @mock.patch("xetl.engine.execute_job_tasks")
+    @mock.patch("xetl.models.command.Command.execute", return_value=0, autospec=True)
     def test_execute_job_multiple_tasks(
-        self, execute_job_tasks, job_manifest_multiple_tasks_path, commands_fixtures_path, tmpdir
+        self, command_execute, job_manifest_multiple_tasks_path, commands_fixtures_path, tmpdir
     ):
         engine.execute_job(job_manifest_multiple_tasks_path)
 
-        assert execute_job_tasks.call_count == 1, "`execute_job_tasks` was called an unexpected number of times"
+        comands_and_tasks = [
+            f"command: {call.args[0].name}, task: {call.args[1].name}, dryrun: {call.args[2]}"
+            for call in command_execute.call_args_list
+        ]
+        assert comands_and_tasks == [
+            "command: download, task: Download, dryrun: False",
+            "command: splitter, task: Splitter, dryrun: False",
+        ]
 
-        # check the job_name argument for each call
-        actual_job_names = [call[1].get("job_name") or call[0][0] for call in execute_job_tasks.call_args_list]
-        assert actual_job_names == ["Multiple job manifest"]
-
-        # check the tasks argument for each call
-        actual_tasks = [call[1].get("tasks") or call[0][1] for call in execute_job_tasks.call_args_list]
-        actual_tasks_names = [[task.command for task in tasks] for tasks in actual_tasks]
-        assert actual_tasks_names == [["download", "splitter"]]
-
-        # check the commands argument for each call
-        actual_commands = [call[1].get("commands") or call[0][2] for call in execute_job_tasks.call_args_list]
-        actual_command = actual_commands[0]
-        assert sorted(actual_command.keys()) == ["download", "parser", "splitter"]
-        assert all(
-            actual_command == p for p in actual_commands
-        ), "Each call to `execute_job_tasks` should have passed the same commands dict"
-
-    @mock.patch("xetl.engine.execute_job_task", return_value=127)
+    @mock.patch("xetl.models.command.Command.execute", return_value=127)
     def test_execute_job_stops_if_task_fails(
-        self, execute_job_task, job_manifest_multiple_tasks_path, commands_fixtures_path, tmpdir
+        self, command_execute, job_manifest_multiple_tasks_path, commands_fixtures_path, tmpdir
     ):
         with pytest.raises(CommandFailure) as excinfo:
             engine.execute_job(job_manifest_multiple_tasks_path)
 
-        assert execute_job_task.call_count == 1, "execute_job_task() should have only been called once"
+        assert command_execute.call_count == 1, "Command.execute() should have only been called once"
         assert excinfo.value.returncode == 127, "The exception should contain the return code of the failed command"
 
-    @mock.patch("xetl.engine.execute_job_tasks")
-    def test_execute_job_without_commands_path_warns(self, execute_job_tasks, tmpdir, caplog):
+    @mock.patch("xetl.models.command.Command.execute")
+    def test_execute_job_without_commands_path_warns(self, execute_command, tmpdir, caplog):
         manifest = dedent(
             """
             name: Job without manifests
@@ -95,8 +69,8 @@ class TestJobManifest(object):
             in caplog.messages
         )
 
-    @mock.patch("xetl.engine.execute_job_tasks")
-    def test_execute_job_no_commands_found(self, execute_job_tasks, tmpdir, caplog):
+    @mock.patch("xetl.models.command.Command.execute")
+    def test_execute_job_no_commands_found(self, execute_command, tmpdir, caplog):
         manifest = dedent(
             """
             name: Job without manifests
@@ -120,34 +94,37 @@ class TestJobManifest(object):
         command_execute.assert_not_called()
 
     @pytest.mark.parametrize(
-        "skip_to, expected_tasks",
+        "skip_to, expected_executed_tasks",
         [
-            ("download", [["Download", "Splitter"]]),
-            ("splitter", [["Splitter"]]),
-            ("SPLITTER", [["Splitter"]]),
+            (None, ["Download", "Splitter"]),
+            ("download", ["Download", "Splitter"]),
+            ("splitter", ["Splitter"]),
+            ("SPLITTER", ["Splitter"]),
         ],
-        ids=["skip-to-task-1", "skip-to-task-2", "case-insensitive"],
+        ids=["not-set", "skip-to-task-1", "skip-to-task-2", "case-insensitive"],
     )
-    @mock.patch("xetl.engine.execute_job_tasks")
+    @mock.patch("xetl.models.command.Command.execute", return_value=0)
     def test_execute_job_skip_to(
         self,
-        execute_job_tasks,
+        command_execute,
         skip_to,
-        expected_tasks,
+        expected_executed_tasks,
         job_manifest_multiple_tasks_path,
     ):
         engine.execute_job(job_manifest_multiple_tasks_path, skip_to=skip_to)
 
-        actual_tasks = [call[1].get("tasks") or call[0][1] for call in execute_job_tasks.call_args_list]
-        actual_tasks_names = [[task.name for task in tasks] for tasks in actual_tasks]
-        assert actual_tasks_names == expected_tasks
+        actual_executed_tasks = [
+            (call.kwargs.get("task") or call.args[0]).name for call in command_execute.call_args_list
+        ]
+        assert actual_executed_tasks == expected_executed_tasks
 
-    @mock.patch("xetl.engine.execute_job_task", return_value=0)
-    def test_execute_job_skipped_tasks_still_resolve(self, execute_job_task, tmpdir):
+    @mock.patch("xetl.models.command.Command.execute", return_value=0)
+    def test_execute_job_skipped_tasks_still_resolve(self, command_execute, commands_fixtures_path, tmpdir):
         job_manifest = dedent(
-            """
+            f"""
             name: Multiple job manifest
             data: /data
+            commands: {commands_fixtures_path}
             tasks:
               - name: skipped
                 command: download
@@ -159,11 +136,12 @@ class TestJobManifest(object):
               - name: references-skipped
                 command: splitter
                 env:
-                  SOURCE: ${previous.OUTPUT}
+                  FILES: $data/files
+                  SOURCE: ${{previous.OUTPUT}}
                   OUTPUT: /tmp/data1/splits
             """
         )
         engine.execute_job(job_file(job_manifest, tmpdir))
-        assert execute_job_task.call_count == 1, "execute_job_task() should have only been called once"
-        executed_task = execute_job_task.call_args[0][0]
+        assert command_execute.call_count == 1, "Command.execute() should have only been called once"
+        executed_task = command_execute.call_args[0][0]
         assert executed_task.env["SOURCE"] == "/tmp/data1/source"

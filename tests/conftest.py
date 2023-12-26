@@ -29,7 +29,8 @@ def job_manifest_simple(commands_fixtures_path):
         env:
           JOB_VAR: job-var-value
         tasks:
-          - command: download
+          - name: Download
+            command: download
             env:
               BASE_URL: http://example.com/data
               THROTTLE: 1000

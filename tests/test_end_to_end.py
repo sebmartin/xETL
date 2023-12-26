@@ -144,6 +144,8 @@ def test_execute_bash_job(job_manifest, print_env_command, filter_env_command, o
         │ Available commands detected:
         │  - print-env
         │  - filter
+        │ WARNING Ignoring unknown env variable for command `print-env`: JOB_VAR. Valid names are: OUTPUT, TEMP_FILE, INPUT1, INPUT2
+        │ WARNING Ignoring unknown env variable for command `filter`: JOB_VAR. Valid names are: FILE, PATTERN, OUTPUT
         ┏━━╸Executing task 1 of 2 ━╴╴╶ ╶
         ┃   name: print-env
         ┃   description: null
@@ -237,6 +239,8 @@ def test_execute_bash_job_dryrun(job_manifest, print_env_command, filter_env_com
         │ Available commands detected:
         │  - print-env
         │  - filter
+        │ WARNING Ignoring unknown env variable for command `print-env`: JOB_VAR. Valid names are: OUTPUT, TEMP_FILE, INPUT1, INPUT2
+        │ WARNING Ignoring unknown env variable for command `filter`: JOB_VAR. Valid names are: FILE, PATTERN, OUTPUT
         ┏━━╸Executing task 1 of 2 ━╴╴╶ ╶
         ┃   name: print-env
         ┃   description: null

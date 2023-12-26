@@ -230,11 +230,10 @@ class Command(BaseModel):
             return data.lower()
         return data
 
-    def execute(self, task: Task, dryrun: bool = False) -> int:
+    def validate_inputs(self, task: Task) -> None:
         """
-        Execute the command with inputs from a given task.
+        Validates that the command can be executed with the given task as an input.
         """
-
         if unknown_inputs := [input for input in task.env.keys() if conform_env_key(input) not in self.env]:
             logger.warning(
                 f"Ignoring unknown env variable{'s' if len(unknown_inputs) > 1 else ''} for command `{self.name}`: {', '.join(unknown_inputs)}. "
@@ -263,6 +262,12 @@ class Command(BaseModel):
             ]
             raise ValueError(f"Invalid env values for command `{self.name}`:\n" + "\n".join(details))
 
+    def execute(self, task: Task, dryrun: bool = False) -> int:
+        """
+        Execute the command with inputs from a given task.
+        """
+
+        self.validate_inputs(task)
         inputs_env = {conform_env_key(key): str(value) for (key, value) in task.env.items()}
 
         match self.env_type:

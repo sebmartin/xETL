@@ -47,8 +47,8 @@ def execute_job(manifest_path: str, skip_to: str | None = None, dryrun=False):
             logger.warning("The property `commands` is not defined in the job manifest, no commands will be available")
             commands = {}
         logger.info(f"Available commands detected:")
-        for t in commands.values():
-            logger.info(f" - {t.name}")
+        for cmd in commands.values():
+            logger.info(f" - {cmd.name}")
 
         # Rudimentary implementation, a more robust implementation would consider a complex DAG of tasks
         if skip_to and job.tasks:
@@ -61,8 +61,11 @@ def execute_job(manifest_path: str, skip_to: str | None = None, dryrun=False):
 
 
 def execute_job_tasks(job_name: str, tasks: list[Task], commands: dict[str, Command], dryrun: bool):
+    for task in tasks:
+        command = _get_command(task, commands)
+        command.validate_inputs(task)
+
     for i, task in enumerate(tasks):
-        # logger.info(f"Executing task {f'{i + 1}'} of {len(tasks)}")
         with log_context(LogContext.TASK, f"Executing task {f'{i + 1}'} of {len(tasks)}"):
             for line in yaml.dump(task.model_dump(), indent=2, sort_keys=False).strip().split("\n"):
                 logger.info("  " + line)
@@ -70,7 +73,7 @@ def execute_job_tasks(job_name: str, tasks: list[Task], commands: dict[str, Comm
                 if task.skip:
                     logger.warning(f"Skipping task `{task.name or f'#{i + 1}'}` from job '{job_name}'")
                     continue
-                returncode = execute_job_task(task, commands, dryrun)
+                returncode = _get_command(task, commands).execute(task, dryrun)
                 tail(f"Return code: {returncode}")
             if i < len(tasks) - 1:
                 logger.info("")  # leave a blank line between tasks
@@ -79,10 +82,10 @@ def execute_job_tasks(job_name: str, tasks: list[Task], commands: dict[str, Comm
             raise CommandFailure(returncode=returncode)
 
 
-def execute_job_task(task: Task, commands: dict[str, Command], dryrun) -> int:
+def _get_command(task: Task, commands: dict[str, Command]) -> Command:
     command_name = task.command
 
     if command := commands.get(command_name):
-        return command.execute(task, dryrun)  # TODO: no unit tests hit this
+        return command
     else:
         raise UnknownCommandError(f"Unknown command `{command_name}`, should be one of: {sorted(commands.keys())}")
