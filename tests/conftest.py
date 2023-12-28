@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 
 @pytest.fixture
-def commands_fixtures_path():
+def tasks_fixtures_path():
     return os.path.abspath(os.path.dirname(__file__) + "/../tests/fixtures")
 
 
@@ -20,17 +20,17 @@ def job_file(job_yaml: str, tmpdir):
 
 
 @pytest.fixture
-def job_manifest_simple(commands_fixtures_path):
+def job_manifest_simple(tasks_fixtures_path):
     return dedent(
         f"""
         name: Simple job manifest
         data: /data
-        commands: {commands_fixtures_path}
+        tasks: {tasks_fixtures_path}
         env:
           JOB_VAR: job-var-value
-        tasks:
+        commands:
           - name: Download
-            command: download
+            task: download
             env:
               BASE_URL: http://example.com/data
               THROTTLE: 1000
@@ -45,21 +45,21 @@ def job_manifest_simple_path(job_manifest_simple, tmpdir):
 
 
 @pytest.fixture
-def job_manifest_multiple_tasks(commands_fixtures_path):
+def job_manifest_multiple_commands(tasks_fixtures_path):
     return dedent(
         f"""
         name: Multiple job manifest
         data: /data
-        commands: {commands_fixtures_path}
-        tasks:
+        tasks: {tasks_fixtures_path}
+        commands:
           - name: Download
-            command: download
+            task: download
             env:
               BASE_URL: http://example.com/data
               THROTTLE: 1000
               OUTPUT: /tmp/data
           - name: Splitter
-            command: splitter
+            task: splitter
             env:
               FILES: /tmp/data
               OUTPUT: /tmp/data/splits
@@ -68,5 +68,5 @@ def job_manifest_multiple_tasks(commands_fixtures_path):
 
 
 @pytest.fixture
-def job_manifest_multiple_tasks_path(job_manifest_multiple_tasks, tmpdir):
-    return job_file(job_manifest_multiple_tasks, tmpdir)
+def job_manifest_multiple_commands_path(job_manifest_multiple_commands, tmpdir):
+    return job_file(job_manifest_multiple_commands, tmpdir)

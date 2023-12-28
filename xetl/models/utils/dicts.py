@@ -5,8 +5,8 @@ from xetl.models import EnvVariableType
 
 def conform_key(key: str):
     """
-    All properties in job and command manifests are converted to snake case. The only exception is
-    the `env` dictionary in Commands and Task models which are converted to upper case with underscores.
+    All properties in job and task manifests are converted to snake case. The only exception is
+    the `env` dictionary in Tasks and Command models which are converted to upper case with underscores.
     See `conform_env_key` for more information.
     """
     return key.lower().replace("-", "_")

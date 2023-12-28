@@ -73,16 +73,16 @@ def test_conform_env_keys(env):
         f"""
         name: Single composed job manifest
         data: /data
-        tasks:
-          - command: download
+        commands:
+          - task: download
             env:
               {env}: http://example.com/data
         """
     )
     job = Job.from_yaml(manifest)
 
-    assert "BASE_URL" in job.tasks[0].env
-    assert job.tasks[0].env["BASE_URL"] == "http://example.com/data"
+    assert "BASE_URL" in job.commands[0].env
+    assert job.commands[0].env["BASE_URL"] == "http://example.com/data"
 
 
 @pytest.mark.parametrize(
@@ -94,15 +94,15 @@ def test_conform_env_invalid_values(env_item):
         f"""
         name: Single composed job manifest
         data: /data
-        tasks:
-          - command: download
+        commands:
+          - task: download
             env:
               {env_item}
         """
     )
     with pytest.raises(ValidationError) as exc:
         Job.from_yaml(manifest)
-    assert "tasks.0.env\n  Input should be a valid dictionary" in str(exc.value)
+    assert "commands.0.env\n  Input should be a valid dictionary" in str(exc.value)
 
 
 @mock.patch.dict("xetl.models.job.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
@@ -111,7 +111,7 @@ def test_host_env_default_dont_inherit():
         """
         name: Job does not inherit
         data: /data
-        tasks: []
+        commands: []
         """
     )
     job = Job.from_yaml(manifest)
@@ -128,7 +128,7 @@ def test_host_env_inherit_all(all):
         host-env: {all}
         env:
           VAR3: job-var3-value
-        tasks: []
+        commands: []
         """
     ).format(all=all)
     job = Job.from_yaml(manifest)
@@ -146,7 +146,7 @@ def test_host_env_inherit_all_mixed_warns(caplog):
         host-env:
           - VAR1
           - '*'
-        tasks: []
+        commands: []
         """
     ).format(all=all)
     Job.from_yaml(manifest)
@@ -165,7 +165,7 @@ def test_host_env_subset():
         data: /data
         host-env:
           - VAR1
-        tasks: []
+        commands: []
         """
     )
     job = Job.from_yaml(manifest)
@@ -182,7 +182,7 @@ def test_host_env_job_overrides_host_env():
         host-env: "*"
         env:
           VAR1: job-var1-value
-        tasks: []
+        commands: []
         """
     )
     job = Job.from_yaml(manifest)
@@ -191,7 +191,7 @@ def test_host_env_job_overrides_host_env():
 
 
 @mock.patch.dict("xetl.models.job.os.environ", {"HOST_VAR": "host-var-value"}, clear=True)
-def test_task_env_inherits_host_and_job_env():
+def test_command_env_inherits_host_and_job_env():
     manifest = dedent(
         f"""
         name: Job does not inherit
@@ -200,33 +200,39 @@ def test_task_env_inherits_host_and_job_env():
           - HOST_VAR
         env:
           JOB_VAR: job-var-value
-        tasks:
-          - command: command1
+        commands:
+          - task: task1
             env:
-              STEP_VAR: task-var-value
+              STEP_VAR: command-var-value
         """
     )
     job = Job.from_yaml(manifest)
-    assert job.tasks[0].env.get("HOST_VAR") == "host-var-value", "The HOST var should have been inherited by the task"
-    assert job.tasks[0].env.get("JOB_VAR") == "job-var-value", "The JOB var should have been inherited by the task"
-    assert job.tasks[0].env.get("STEP_VAR") == "task-var-value", "The STEP var should have been inherited by the task"
+    assert (
+        job.commands[0].env.get("HOST_VAR") == "host-var-value"
+    ), "The HOST var should have been inherited by the command"
+    assert (
+        job.commands[0].env.get("JOB_VAR") == "job-var-value"
+    ), "The JOB var should have been inherited by the command"
+    assert (
+        job.commands[0].env.get("STEP_VAR") == "command-var-value"
+    ), "The STEP var should have been inherited by the command"
 
 
 @pytest.mark.parametrize(
     "placeholder, resolved",
     [
-        ("${VAR1}", "second-task-var1-value"),
-        ("${Var1}", "second-task-var1-value"),
+        ("${VAR1}", "second-command-var1-value"),
+        ("${Var1}", "second-command-var1-value"),
         ("${JOB_VAR}", "job-var-value"),
         ("${Job_var}", "job-var-value"),
         ("${Job-var}", "job-var-value"),
         ("${JOB-VAR}", "job-var-value"),
-        ("${previous.VAR1}", "first-task-var1-value"),
-        ("${previous.Var1}", "first-task-var1-value"),
+        ("${previous.VAR1}", "first-command-var1-value"),
+        ("${previous.Var1}", "first-command-var1-value"),
         ("${previous.JOB_VAR}", "job-var-value"),
-        ("${first-task.VAR1}", "first-task-var1-value"),
-        ("${first_task.VAR1}", "first-task-var1-value"),
-        ("${first-task.JOB_VAR}", "job-var-value"),
+        ("${first-command.VAR1}", "first-command-var1-value"),
+        ("${first_command.VAR1}", "first-command-var1-value"),
+        ("${first-command.JOB_VAR}", "job-var-value"),
         ("~/relative/path/", "/User/username/relative/path/"),
     ],
 )
@@ -239,24 +245,24 @@ def test_resolve_placeholders(_, placeholder, resolved):
         env:
           VAR1: job-var1-value
           JOB_VAR: job-var-value
-        tasks:
-          - name: first-task
-            command: command1
+        commands:
+          - name: first-command
+            task: task1
             env:
-              VAR1: first-task-var1-value
+              VAR1: first-command-var1-value
               VAR_INT: 123
               VAR_FLOAT: 123.4
               VAR_BOOL: true
-          - name: second-task
-            command: command2
+          - name: second-command
+            task: task2
             env:
-              VAR1: second-task-var1-value
+              VAR1: second-command-var1-value
               VAR2: {placeholder}
         """
     )
     job = Job.from_yaml(manifest)
 
-    assert job.tasks[1].env["VAR2"] == resolved
+    assert job.commands[1].env["VAR2"] == resolved
 
 
 @pytest.mark.parametrize(
@@ -279,16 +285,16 @@ def test_resolve_placeholders_non_string_types(placeholder, resolved):
           VAR_INT: 123
           VAR_FLOAT: 123.4
           VAR_BOOL: true
-        tasks:
-          - name: first-task
-            command: command1
+        commands:
+          - name: first-command
+            task: task1
             env:
               VAR: {placeholder}
         """
     )
     job = Job.from_yaml(manifest)
 
-    assert job.tasks[0].env["VAR"] == resolved
+    assert job.commands[0].env["VAR"] == resolved
 
 
 @pytest.mark.parametrize(
@@ -318,9 +324,9 @@ def test_resolve_placeholders_complex_matches(placeholder, resolved):
         data: /data
         env:
           JOB_VAR: job-var-value
-        tasks:
-          - name: first-task
-            command: command1
+        commands:
+          - name: first-command
+            task: task1
             env:
               VAR: value
               PLACEHOLDER: {placeholder}
@@ -328,7 +334,7 @@ def test_resolve_placeholders_complex_matches(placeholder, resolved):
     )
     job = Job.from_yaml(manifest)
 
-    assert job.tasks[0].env["PLACEHOLDER"] == resolved
+    assert job.commands[0].env["PLACEHOLDER"] == resolved
 
 
 @pytest.mark.parametrize("null_value", ["null", "~"])
@@ -339,9 +345,9 @@ def test_resolve_placeholders_none_value(null_value):
         data: /data
         env:
           JOB_VAR: {null_value}
-        tasks:
-          - name: first-task
-            command: command1
+        commands:
+          - name: first-command
+            task: task1
             env:
               PLAIN: $JOB_VAR
               EMBEDDED: this is $JOB_VAR
@@ -349,8 +355,8 @@ def test_resolve_placeholders_none_value(null_value):
     )
     job = Job.from_yaml(manifest)
 
-    assert job.tasks[0].env["PLAIN"] == None
-    assert job.tasks[0].env["EMBEDDED"] == "this is null", "None should be converted to a string as 'null'"
+    assert job.commands[0].env["PLAIN"] == None
+    assert job.commands[0].env["EMBEDDED"] == "this is null", "None should be converted to a string as 'null'"
 
 
 @mock.patch.dict("xetl.models.job.os.environ", {"HOST_VAR": "host-var-value"}, clear=True)
@@ -362,9 +368,9 @@ def test_resolve_placeholders_recursive_matches():
         host-env: "*"
         env:
           JOB_VAR: job-var-value
-        tasks:
-          - name: first-task
-            command: command1
+        commands:
+          - name: first-command
+            task: task1
             env:
               VAR1: $data
               VAR2: "${VAR1}" # would-be-resolved variable
@@ -376,7 +382,7 @@ def test_resolve_placeholders_recursive_matches():
     )
     job = Job.from_yaml(manifest)
 
-    assert job.tasks[0].env == {
+    assert job.commands[0].env == {
         "JOB_VAR": "job-var-value",
         "HOST_VAR": "host-var-value",
         "VAR1": "/resolved-data-path",
@@ -394,9 +400,9 @@ def test_resolve_placeholders_expands_relative_data_dir(_):
         """
         name: Single composed job manifest
         data: relative/data/path
-        tasks:
+        commands:
           - name: downloader
-            command: download
+            task: download
             env:
               BASE_URL: http://example.com/data
               OUTPUT: $data/downloader/output
@@ -405,7 +411,7 @@ def test_resolve_placeholders_expands_relative_data_dir(_):
     job = Job.from_yaml(manifest)
 
     assert job.data == "/absolute/path/to/relative/data/path"
-    assert job.tasks[0].env["OUTPUT"] == f"{job.data}/downloader/output"
+    assert job.commands[0].env["OUTPUT"] == f"{job.data}/downloader/output"
 
 
 def test_resolve_doesnt_expand_absolute_data_dir():
@@ -413,9 +419,9 @@ def test_resolve_doesnt_expand_absolute_data_dir():
         """
         name: Single composed job manifest
         data: /data/path
-        tasks:
+        commands:
           - name: downloader
-            command: download
+            task: download
             env:
               BASE_URL: http://example.com/data
               OUTPUT: $data/downloader/output
@@ -424,7 +430,7 @@ def test_resolve_doesnt_expand_absolute_data_dir():
     job = Job.from_yaml(manifest)
 
     assert job.data == "/data/path"
-    assert job.tasks[0].env["OUTPUT"] == f"{job.data}/downloader/output"
+    assert job.commands[0].env["OUTPUT"] == f"{job.data}/downloader/output"
 
 
 def test_resolve_unknown_env_variable_no_vars_raises():
@@ -432,9 +438,9 @@ def test_resolve_unknown_env_variable_no_vars_raises():
         """
         name: Single composed job manifest
         data: /data
-        tasks:
+        commands:
           - name: downloader
-            command: ${unknown.something}
+            task: ${unknown.something}
         """
     )
     with pytest.raises(ValueError) as exc_info:
@@ -447,8 +453,8 @@ def test_resolve_unknown_env_variable_no_vars_raises():
             """
             1 validation error for Job
               Value error, Invalid name `unknown` in `${unknown.something}`. The first must be one of:
-             - variable in the current task's env: No env variables defined
-             - name of a previous task: No previous tasks defined
+             - variable in the current command's env: No env variables defined
+             - name of a previous command: No previous commands defined
             """
         ).strip()
     ), str(exc_info.value)
@@ -461,9 +467,9 @@ def test_resolve_unknown_env_variable_no_previous_raises():
         data: /data
         env:
           JOB_VAR: job-var-value
-        tasks:
+        commands:
           - name: downloader
-            command: download
+            task: download
             env:
               VAR1: http://example.com/data
               VAR2: $unknown/foo/bar/baz
@@ -479,8 +485,8 @@ def test_resolve_unknown_env_variable_no_previous_raises():
             """
             1 validation error for Job
               Value error, Invalid name `unknown` in `$unknown`. The first must be one of:
-             - variable in the current task's env: JOB_VAR, VAR1, VAR2
-             - name of a previous task: No previous tasks defined
+             - variable in the current command's env: JOB_VAR, VAR1, VAR2
+             - name of a previous command: No previous commands defined
             """
         ).strip()
     ), str(exc_info.value)
@@ -491,13 +497,13 @@ def test_resolve_unknown_env_variable_no_current_raises():
         """
         name: Single composed job manifest
         data: /data
-        tasks:
+        commands:
           - name: first
-            command: first
+            task: first
             env:
               VAR1: http://example.com/data
           - name: second
-            command: $unknown
+            task: $unknown
         """
     )
     with pytest.raises(ValueError) as exc_info:
@@ -510,8 +516,8 @@ def test_resolve_unknown_env_variable_no_current_raises():
             """
             1 validation error for Job
               Value error, Invalid name `unknown` in `$unknown`. The first must be one of:
-             - variable in the current task's env: No env variables defined
-             - name of a previous task: first, previous
+             - variable in the current command's env: No env variables defined
+             - name of a previous command: first, previous
             """
         ).strip()
     ), str(exc_info.value)
@@ -524,13 +530,13 @@ def test_resolve_unknown_env_variable_with_previous_raises():
         data: /data
         env:
           JOB_VAR: job-var-value
-        tasks:
+        commands:
           - name: first
-            command: first
+            task: first
             env:
               VAR1: http://example.com/data
           - name: second
-            command: second
+            task: second
             env:
               VAR1: http://example.com/data
               VAR2: $unknown/foo/bar/baz
@@ -546,8 +552,8 @@ def test_resolve_unknown_env_variable_with_previous_raises():
             """
             1 validation error for Job
               Value error, Invalid name `unknown` in `$unknown`. The first must be one of:
-             - variable in the current task's env: JOB_VAR, VAR1, VAR2
-             - name of a previous task: first, previous
+             - variable in the current command's env: JOB_VAR, VAR1, VAR2
+             - name of a previous command: first, previous
             """
         ).strip()
     ), str(exc_info.value)
@@ -558,14 +564,14 @@ def test_resolve_incomplete_variable_path_raises():
         f"""
         name: Single composed job manifest
         data: /data
-        tasks:
+        commands:
           - name: downloader1
-            command: download
+            task: download
             env:
               BASE_URL: http://example.com/data
               OUTPUT: $data/foo
           - name: downloader2
-            command: download
+            task: download
             env:
               BASE_URL: http://example.com/data
               OUTPUT: ${{previous}} # missing env key
@@ -585,14 +591,14 @@ def test_resolve_tmp_dir(tmpdir):
         f"""
         name: Single composed job manifest
         data: {data_path}
-        tasks:
+        commands:
           - name: downloader
-            command: download
+            task: download
             env:
               BASE_URL: http://example.com/data
               OUTPUT: ${{tmp.dir}}
           - name: splitter
-            command: split
+            task: split
             env:
               FOO: ${{previous.OUTPUT}}
               OUTPUT: ${{tmp.dir}}
@@ -601,11 +607,12 @@ def test_resolve_tmp_dir(tmpdir):
     job = Job.from_yaml(manifest)
 
     assert all(
-        isinstance(task.env["OUTPUT"], str) and task.env["OUTPUT"].startswith(data_path + "/tmp/") for task in job.tasks
-    ), f"All tasks should output to a tmp directory: {[t.env['output'] for t in job.tasks]}"
-    assert all(os.path.isdir(task.env["OUTPUT"]) for task in job.tasks), "Each output should be a directory"  # type: ignore
-    assert job.tasks[0].env["OUTPUT"] != job.tasks[1].env["OUTPUT"], "Every tmp value should be a different value"
-    assert job.tasks[1].env["FOO"] == job.tasks[0].env["OUTPUT"], "References to tmp dir should be the same value"
+        isinstance(command.env["OUTPUT"], str) and command.env["OUTPUT"].startswith(data_path + "/tmp/")
+        for command in job.commands
+    ), f"All commands should output to a tmp directory: {[t.env['output'] for t in job.commands]}"
+    assert all(os.path.isdir(command.env["OUTPUT"]) for command in job.commands), "Each output should be a directory"  # type: ignore
+    assert job.commands[0].env["OUTPUT"] != job.commands[1].env["OUTPUT"], "Every tmp value should be a different value"
+    assert job.commands[1].env["FOO"] == job.commands[0].env["OUTPUT"], "References to tmp dir should be the same value"
 
 
 def test_resolve_tmp_file(tmpdir):
@@ -614,14 +621,14 @@ def test_resolve_tmp_file(tmpdir):
         f"""
         name: Single composed job manifest
         data: {data_path}
-        tasks:
+        commands:
           - name: downloader
-            command: download
+            task: download
             env:
               BASE_URL: http://example.com/data
               OUTPUT: ${{tmp.file}}
           - name: splitter
-            command: split
+            task: split
             env:
               FOO: ${{previous.OUTPUT}}
               OUTPUT: ${{tmp.file}}
@@ -630,11 +637,15 @@ def test_resolve_tmp_file(tmpdir):
     job = Job.from_yaml(manifest)
 
     assert all(
-        str(task.env["OUTPUT"]).startswith(data_path + "/tmp/") for task in job.tasks
-    ), "All tasks should output to a tmp directory"
-    assert all(os.path.isfile(str(task.env["OUTPUT"])) for task in job.tasks), "Each output should be a directory"
-    assert job.tasks[0].env["OUTPUT"] != job.tasks[1].env["OUTPUT"], "Every tmp value should be a different value"
-    assert job.tasks[1].env["FOO"] == job.tasks[0].env["OUTPUT"], "References to tmp file should be the same value"
+        str(command.env["OUTPUT"]).startswith(data_path + "/tmp/") for command in job.commands
+    ), "All commands should output to a tmp directory"
+    assert all(
+        os.path.isfile(str(command.env["OUTPUT"])) for command in job.commands
+    ), "Each output should be a directory"
+    assert job.commands[0].env["OUTPUT"] != job.commands[1].env["OUTPUT"], "Every tmp value should be a different value"
+    assert (
+        job.commands[1].env["FOO"] == job.commands[0].env["OUTPUT"]
+    ), "References to tmp file should be the same value"
 
 
 def test_resolve_variable_previous_unknown_variable_raises():
@@ -642,14 +653,14 @@ def test_resolve_variable_previous_unknown_variable_raises():
         """
         name: Single composed job manifest
         data: /data
-        tasks:
+        commands:
           - name: downloader
-            command: download
+            task: download
             env:
               BASE_URL: http://example.com/data
               OUTPUT: /data/output1
           - name: splitter
-            command: split
+            task: split
             env:
               FOO: ${previous.unknown}
               OUTPUT: /data/output2
@@ -665,14 +676,14 @@ def test_resolve_variable_previous_unknown_variable_raises():
     ), str(exc_info.value)
 
 
-def test_resolve_variable_previous_output_first_task_raises():
+def test_resolve_variable_previous_output_first_command_raises():
     manifest = dedent(
         """
         name: Single composed job manifest
         data: /data
-        tasks:
+        commands:
           - name: splitter
-            command: split
+            task: split
             env:
               FOO: ${previous.output}
               OUTPUT: /data/output
@@ -681,7 +692,7 @@ def test_resolve_variable_previous_output_first_task_raises():
 
     with pytest.raises(Exception) as exc_info:
         Job.from_yaml(manifest)
-    assert "Cannot use $previous placeholder on the first task" in str(exc_info.value)
+    assert "Cannot use $previous placeholder on the first command" in str(exc_info.value)
 
 
 def test_resolve_variable_chained_placeholders():
@@ -689,19 +700,19 @@ def test_resolve_variable_chained_placeholders():
         """
         name: Single composed job manifest
         data: /data
-        tasks:
+        commands:
           - name: downloader1
-            command: download
+            task: download
             env:
               BASE_URL: http://example.com$data
               OUTPUT: /tmp/data/d1
           - name: downloader2
-            command: download
+            task: download
             env:
               BASE_URL: ${downloader1.base_url}
               OUTPUT: /tmp/data/d2
           - name: downloader3
-            command: download
+            task: download
             env:
               BASE_URL: ${downloader2.base_url}
               OUTPUT: /tmp/data/d3
@@ -710,7 +721,7 @@ def test_resolve_variable_chained_placeholders():
 
     job = Job.from_yaml(manifest)
 
-    actual_base_urls = [task.env["BASE_URL"] for task in job.tasks]
+    actual_base_urls = [command.env["BASE_URL"] for command in job.commands]
     assert actual_base_urls == ["http://example.com/data"] * 3
 
 
@@ -719,14 +730,14 @@ def test_resolve_variable_circular_placeholders_raises():
         """
         name: Single composed job manifest
         data: /data
-        tasks:
+        commands:
           - name: downloader1
-            command: download
+            task: download
             env:
               BASE_URL: http://example.com$data
               OUTPUT: ${downloader2.output}
           - name: downloader2
-            command: download
+            task: download
             env:
               BASE_URL: http://example.com$data
               OUTPUT: ${downloader1.output}
@@ -742,8 +753,8 @@ def test_resolve_variable_circular_placeholders_raises():
             """
             1 validation error for Job
               Value error, Invalid name `downloader2` in `${downloader2.output}`. The first must be one of:
-             - variable in the current task's env: BASE_URL, OUTPUT
-             - name of a previous task: No previous tasks defined
+             - variable in the current command's env: BASE_URL, OUTPUT
+             - name of a previous command: No previous commands defined
             """
         ).strip()
     )

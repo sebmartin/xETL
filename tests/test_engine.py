@@ -4,8 +4,8 @@ import pytest
 import mock
 
 from xetl import engine
-from xetl.models.task import Task
-from xetl.models.command import Command, CommandFailure, UnknownCommandError
+from xetl.models.command import Command
+from xetl.models.task import Task, TaskFailure, UnknownTaskError
 
 
 def job_file(job_yaml: str, tmpdir):
@@ -17,124 +17,119 @@ def job_file(job_yaml: str, tmpdir):
 
 @mock.patch("subprocess.run", mock.Mock())
 class TestJobManifest(object):
-    @mock.patch("xetl.models.command.Command.execute", return_value=0, autospec=True)
-    def test_execute_job_simple_job(self, command_execute, job_manifest_simple_path):
+    @mock.patch("xetl.models.task.Task.execute", return_value=0, autospec=True)
+    def test_execute_job_simple_job(self, task_execute, job_manifest_simple_path):
         engine.execute_job(job_manifest_simple_path)
 
-        comands_and_tasks = [
-            f"command: {call.args[0].name}, task: {call.args[1].name}, dryrun: {call.args[2]}"
-            for call in command_execute.call_args_list
+        comands_and_commands = [
+            f"task: {call.args[0].name}, command: {call.args[1].name}, dryrun: {call.args[2]}"
+            for call in task_execute.call_args_list
         ]
-        assert comands_and_tasks == [
-            "command: download, task: Download, dryrun: False",
+        assert comands_and_commands == [
+            "task: download, command: Download, dryrun: False",
         ]
 
-    @mock.patch("xetl.models.command.Command.execute", return_value=0, autospec=True)
-    def test_execute_job_multiple_tasks(
-        self, command_execute, job_manifest_multiple_tasks_path, commands_fixtures_path, tmpdir
+    @mock.patch("xetl.models.task.Task.execute", return_value=0, autospec=True)
+    def test_execute_job_multiple_commands(
+        self, task_execute, job_manifest_multiple_commands_path, tasks_fixtures_path, tmpdir
     ):
-        engine.execute_job(job_manifest_multiple_tasks_path)
+        engine.execute_job(job_manifest_multiple_commands_path)
 
-        comands_and_tasks = [
-            f"command: {call.args[0].name}, task: {call.args[1].name}, dryrun: {call.args[2]}"
-            for call in command_execute.call_args_list
+        comands_and_commands = [
+            f"task: {call.args[0].name}, command: {call.args[1].name}, dryrun: {call.args[2]}"
+            for call in task_execute.call_args_list
         ]
-        assert comands_and_tasks == [
-            "command: download, task: Download, dryrun: False",
-            "command: splitter, task: Splitter, dryrun: False",
+        assert comands_and_commands == [
+            "task: download, command: Download, dryrun: False",
+            "task: splitter, command: Splitter, dryrun: False",
         ]
 
-    @mock.patch("xetl.models.command.Command.execute", return_value=127)
-    def test_execute_job_stops_if_task_fails(
-        self, command_execute, job_manifest_multiple_tasks_path, commands_fixtures_path, tmpdir
+    @mock.patch("xetl.models.task.Task.execute", return_value=127)
+    def test_execute_job_stops_if_command_fails(
+        self, task_execute, job_manifest_multiple_commands_path, tasks_fixtures_path, tmpdir
     ):
-        with pytest.raises(CommandFailure) as excinfo:
-            engine.execute_job(job_manifest_multiple_tasks_path)
+        with pytest.raises(TaskFailure) as excinfo:
+            engine.execute_job(job_manifest_multiple_commands_path)
 
-        assert command_execute.call_count == 1, "Command.execute() should have only been called once"
-        assert excinfo.value.returncode == 127, "The exception should contain the return code of the failed command"
+        assert task_execute.call_count == 1, "Task.execute() should have only been called once"
+        assert excinfo.value.returncode == 127, "The exception should contain the return code of the failed task"
 
-    @mock.patch("xetl.models.command.Command.execute")
-    def test_execute_job_without_commands_path_warns(self, execute_command, tmpdir, caplog):
+    @mock.patch("xetl.models.task.Task.execute")
+    def test_execute_job_without_tasks_path_warns(self, execute_task, tmpdir, caplog):
         manifest = dedent(
             """
             name: Job without manifests
             data: /data
-            tasks: []
+            commands: []
             """
         )
         engine.execute_job(job_file(manifest, str(tmpdir)))
-        assert (
-            "The property `commands` is not defined in the job manifest, no commands will be available"
-            in caplog.messages
-        )
+        assert "The property `tasks` is not defined in the job manifest, no tasks will be available" in caplog.messages
 
-    @mock.patch("xetl.models.command.Command.execute")
-    def test_execute_job_no_commands_found(self, execute_command, tmpdir, caplog):
+    @mock.patch("xetl.models.task.Task.execute")
+    def test_execute_job_no_tasks_found(self, execute_task, tmpdir, caplog):
         manifest = dedent(
             """
             name: Job without manifests
             data: /data
-            commands: /tmp/does-not-exist
-            tasks: []
+            tasks: /tmp/does-not-exist
+            commands: []
             """
         )
         engine.execute_job(job_file(manifest, str(tmpdir)))
-        assert "Could not find any commands at paths ['/tmp/does-not-exist']" in caplog.messages
+        assert "Could not find any tasks at paths ['/tmp/does-not-exist']" in caplog.messages
 
-    @mock.patch("xetl.models.command.Command.execute", return_value=127)
-    def test_execute_job_with_unknown_command(
-        self, command_execute, job_manifest_simple, commands_fixtures_path, tmpdir
-    ):
-        manifest = job_manifest_simple.replace("command: download", "command: unknown")
-        with pytest.raises(UnknownCommandError) as excinfo:
+    @mock.patch("xetl.models.task.Task.execute", return_value=127)
+    def test_execute_job_with_unknown_task(self, task_execute, job_manifest_simple, tasks_fixtures_path, tmpdir):
+        manifest = job_manifest_simple.replace("task: download", "task: unknown")
+        with pytest.raises(UnknownTaskError) as excinfo:
             engine.execute_job(job_file(manifest, tmpdir))
 
-        assert str(excinfo.value) == "Unknown command `unknown`, should be one of: ['download', 'parser', 'splitter']"
-        command_execute.assert_not_called()
+        assert str(excinfo.value) == "Unknown task `unknown`, should be one of: ['download', 'parser', 'splitter']"
+        task_execute.assert_not_called()
 
     @pytest.mark.parametrize(
-        "skip_to, expected_executed_tasks",
+        "skip_to, expected_executed_commands",
         [
             (None, ["Download", "Splitter"]),
             ("download", ["Download", "Splitter"]),
             ("splitter", ["Splitter"]),
             ("SPLITTER", ["Splitter"]),
         ],
-        ids=["not-set", "skip-to-task-1", "skip-to-task-2", "case-insensitive"],
+        ids=["not-set", "skip-to-command-1", "skip-to-command-2", "case-insensitive"],
     )
-    @mock.patch("xetl.models.command.Command.execute", return_value=0)
+    @mock.patch("xetl.models.task.Task.execute", return_value=0)
     def test_execute_job_skip_to(
         self,
-        command_execute,
+        task_execute,
         skip_to,
-        expected_executed_tasks,
-        job_manifest_multiple_tasks_path,
+        expected_executed_commands,
+        job_manifest_multiple_commands_path,
     ):
-        engine.execute_job(job_manifest_multiple_tasks_path, skip_to=skip_to)
+        engine.execute_job(job_manifest_multiple_commands_path, skip_to=skip_to)
 
-        actual_executed_tasks = [
-            (call.kwargs.get("task") or call.args[0]).name for call in command_execute.call_args_list
+        actual_executed_commands = [
+            (call.kwargs.get("command") or call.args[0]).name for call in task_execute.call_args_list
         ]
-        assert actual_executed_tasks == expected_executed_tasks
+        assert actual_executed_commands == expected_executed_commands
 
-    @mock.patch("xetl.models.command.Command.execute", return_value=0)
-    def test_execute_job_skipped_tasks_still_resolve(self, command_execute, commands_fixtures_path, tmpdir):
+    @mock.patch("xetl.models.task.Task.execute", return_value=0)
+    def test_execute_job_skipped_commands_still_resolve(self, task_execute, tasks_fixtures_path, tmpdir):
         job_manifest = dedent(
             f"""
             name: Multiple job manifest
             data: /data
-            commands: {commands_fixtures_path}
-            tasks:
+            tasks: {tasks_fixtures_path}
+            commands:
               - name: skipped
-                command: download
+                task: download
                 skip: true
                 env:
                   BASE_URL: http://example.com/data1
                   THROTTLE: 1000
                   OUTPUT: /tmp/data1/source
               - name: references-skipped
-                command: splitter
+                task: splitter
                 env:
                   FILES: $data/files
                   SOURCE: ${{previous.OUTPUT}}
@@ -142,6 +137,6 @@ class TestJobManifest(object):
             """
         )
         engine.execute_job(job_file(job_manifest, tmpdir))
-        assert command_execute.call_count == 1, "Command.execute() should have only been called once"
-        executed_task = command_execute.call_args[0][0]
-        assert executed_task.env["SOURCE"] == "/tmp/data1/source"
+        assert task_execute.call_count == 1, "Task.execute() should have only been called once"
+        executed_command = task_execute.call_args[0][0]
+        assert executed_command.env["SOURCE"] == "/tmp/data1/source"

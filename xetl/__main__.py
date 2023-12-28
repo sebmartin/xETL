@@ -1,7 +1,7 @@
 import argparse
 import logging
 import os
-from xetl.models.command import CommandFailure
+from xetl.models.task import TaskFailure
 from xetl.engine import execute_job
 
 logger = logging.getLogger(__name__)
@@ -10,8 +10,8 @@ logger = logging.getLogger(__name__)
 def main():
     parser = argparse.ArgumentParser("Let's Go!")
     parser.add_argument("manifest", help="Path to job manifest YAML file")
-    parser.add_argument("--skip-to", default=None, help="Name of job (and optionally task) to skip to")
-    parser.add_argument("--dryrun", action="store_true", help="Print the command details instead of executing them")
+    parser.add_argument("--skip-to", default=None, help="Name of command to skip to")
+    parser.add_argument("--dryrun", action="store_true", help="Print the task details instead of executing them")
     args = parser.parse_args()
 
     manifest_path = os.path.abspath(args.manifest)
@@ -21,8 +21,8 @@ def main():
 
     try:
         execute_job(manifest_path, skip_to=args.skip_to, dryrun=args.dryrun)
-    except CommandFailure as e:
-        logger.fatal("Command failed, terminating job.")
+    except TaskFailure as e:
+        logger.fatal("Task failed, terminating job.")
         exit(code=e.returncode)
 
 

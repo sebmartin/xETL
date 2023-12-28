@@ -1,7 +1,7 @@
-name: splitter
+name: parser
 env-type: python
+run-task: python run.py
 env:
   FILES: A local path to a directory containing raw files
   OUTPUT: A local path to store the output
-run-command: python splitter-0.23.py
-test-command: py.test
+test-task: py.test

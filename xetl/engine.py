@@ -6,10 +6,10 @@ import yaml
 
 from xetl.logging import LogContext, log_context
 from xetl.models.job import Job
-from xetl.models.task import Task
-from xetl.models.command import Command, CommandFailure, UnknownCommandError, discover_commands
+from xetl.models.command import Command
+from xetl.models.task import Task, TaskFailure, UnknownTaskError, discover_tasks
 
-COMMANDS_REPO_PATH = os.path.abspath(os.path.dirname(__file__) + "/commands")
+COMMANDS_REPO_PATH = os.path.abspath(os.path.dirname(__file__) + "/tasks")
 
 logger = logging.getLogger(__name__)
 
@@ -37,55 +37,55 @@ def execute_job(manifest_path: str, skip_to: str | None = None, dryrun=False):
         else:
             logger.info("Parsed manifest for job: {}".format(job.name))
 
-        if commands_repo_paths := job.commands:
-            logger.info(f"Discovering commands at paths: {commands_repo_paths}")
-            commands = discover_commands(commands_repo_paths)
-            if not commands:
-                logger.error("Could not find any commands at paths {}".format(commands_repo_paths))
+        if tasks_repo_paths := job.tasks:
+            logger.info(f"Discovering tasks at paths: {tasks_repo_paths}")
+            tasks = discover_tasks(tasks_repo_paths)
+            if not tasks:
+                logger.error("Could not find any tasks at paths {}".format(tasks_repo_paths))
                 return
         else:
-            logger.warning("The property `commands` is not defined in the job manifest, no commands will be available")
-            commands = {}
-        logger.info(f"Available commands detected:")
-        for cmd in commands.values():
+            logger.warning("The property `tasks` is not defined in the job manifest, no tasks will be available")
+            tasks = {}
+        logger.info(f"Available tasks detected:")
+        for cmd in tasks.values():
             logger.info(f" - {cmd.name}")
 
-        # Rudimentary implementation, a more robust implementation would consider a complex DAG of tasks
-        if skip_to and job.tasks:
-            while not job.tasks[0].name or job.tasks[0].name.lower() != skip_to.lower():
-                logger.warning(f"Skipping task: {job.tasks[0].name or job.tasks[0].command}")
-                del job.tasks[0]
-        execute_job_tasks(job.name, job.tasks, commands, dryrun)
+        # Rudimentary implementation, a more robust implementation would consider a complex DAG of commands
+        if skip_to and job.commands:
+            while not job.commands[0].name or job.commands[0].name.lower() != skip_to.lower():
+                logger.warning(f"Skipping command: {job.commands[0].name or job.commands[0].task}")
+                del job.commands[0]
+        execute_job_commands(job.name, job.commands, tasks, dryrun)
 
         logger.info("Done! \\o/")
 
 
-def execute_job_tasks(job_name: str, tasks: list[Task], commands: dict[str, Command], dryrun: bool):
-    for task in tasks:
-        command = _get_command(task, commands)
-        command.validate_inputs(task)
+def execute_job_commands(job_name: str, commands: list[Command], tasks: dict[str, Task], dryrun: bool):
+    for command in commands:
+        task = _get_task(command, tasks)
+        task.validate_inputs(command)
 
-    for i, task in enumerate(tasks):
-        with log_context(LogContext.TASK, f"Executing task {f'{i + 1}'} of {len(tasks)}"):
-            for line in yaml.dump(task.model_dump(), indent=2, sort_keys=False).strip().split("\n"):
+    for i, command in enumerate(commands):
+        with log_context(LogContext.TASK, f"Executing command {f'{i + 1}'} of {len(commands)}"):
+            for line in yaml.dump(command.model_dump(), indent=2, sort_keys=False).strip().split("\n"):
                 logger.info("  " + line)
-            with log_context(LogContext.COMMAND, f"Executing command: {task.command}") as tail:
-                if task.skip:
-                    logger.warning(f"Skipping task `{task.name or f'#{i + 1}'}` from job '{job_name}'")
+            with log_context(LogContext.COMMAND, f"Executing task: {command.task}") as tail:
+                if command.skip:
+                    logger.warning(f"Skipping command `{command.name or f'#{i + 1}'}` from job '{job_name}'")
                     continue
-                returncode = _get_command(task, commands).execute(task, dryrun)
+                returncode = _get_task(command, tasks).execute(command, dryrun)
                 tail(f"Return code: {returncode}")
-            if i < len(tasks) - 1:
-                logger.info("")  # leave a blank line between tasks
+            if i < len(commands) - 1:
+                logger.info("")  # leave a blank line between commands
 
         if returncode != 0:
-            raise CommandFailure(returncode=returncode)
+            raise TaskFailure(returncode=returncode)
 
 
-def _get_command(task: Task, commands: dict[str, Command]) -> Command:
-    command_name = task.command
+def _get_task(command: Command, tasks: dict[str, Task]) -> Task:
+    task_name = command.task
 
-    if command := commands.get(command_name):
-        return command
+    if task := tasks.get(task_name):
+        return task
     else:
-        raise UnknownCommandError(f"Unknown command `{command_name}`, should be one of: {sorted(commands.keys())}")
+        raise UnknownTaskError(f"Unknown task `{task_name}`, should be one of: {sorted(tasks.keys())}")
