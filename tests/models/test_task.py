@@ -220,7 +220,7 @@ class TestDeserialization:
             "FOO": InputDetails(description="something", type=str),
             "OPTION_WITH_HYPHENS": InputDetails(description="something else"),
             "OUTPUT": InputDetails(description="the result of the task", type=str),
-        }, "The env variable names should have been tasked to uppercase and hyphens replaced with underscores"
+        }, "The env variable names should have been parsed to uppercase and hyphens replaced with underscores"
         assert task.run_task == "python run.py"
         assert task.test_task == "py.test"
 
@@ -239,6 +239,50 @@ class TestDeserialization:
             Task(**yaml.load(manifest, yaml.FullLoader))
         assert "Input should be 'python' or 'bash'" in str(exc.value)
 
+    def test_task_env_optional_with_default_value(self):
+        manifest = dedent(
+            """
+            name: simple-task
+            type: task
+            env_type: python
+            path: /tmp
+            env:
+              VAR:
+                optional: true
+                default: booya
+            run-task: python run.py
+            """
+        )
+        task = Task(**yaml.load(manifest, yaml.FullLoader))
+
+        assert task.env == {
+            "VAR": InputDetails(description=None, required=False, default="booya"),
+        }, "The env variable names should have been parsed to InputDetails with defaults"
+
+    def test_task_env_required_with_default_value_raises(self):
+        manifest = dedent(
+            """
+            name: simple-task
+            type: task
+            env_type: python
+            path: /tmp
+            env:
+              VAR1:
+                required: true
+                default: booya
+              VAR2:
+                optional: false
+                default: booya
+            run-task: python run.py
+            """
+        )
+        with pytest.raises(ValidationError) as exc:
+            task = Task(**yaml.load(manifest, yaml.FullLoader))
+        assert (
+            "The following task env variables are required but specify a default value which is invalid: VAR1, VAR2"
+            in str(exc.value)
+        )
+
     def test_task_env_all_defaults(self):
         manifest = dedent(
             """
@@ -255,9 +299,9 @@ class TestDeserialization:
         task = Task(**yaml.load(manifest, yaml.FullLoader))
 
         assert task.env == {
-            "FOO": InputDetails(description="N/A", required=True, default=None),
-            "BAR": InputDetails(description="N/A", required=True, default=None),
-        }, "The env variable names should have been tasked to InputDetails with defaults"
+            "FOO": InputDetails(description=None, required=True, default=None),
+            "BAR": InputDetails(description=None, required=True, default=None),
+        }, "The env variable names should have been parsed to InputDetails with defaults"
 
     def test_task_env_just_descriptions(self):
         manifest = dedent(
@@ -279,7 +323,7 @@ class TestDeserialization:
             "FOO": InputDetails(description="foo description"),
             "BAR": InputDetails(description="bar description"),
             "NOT_A_STRING": InputDetails(description="1"),
-        }, "The env variable names should have been tasked to InputDetails with defaults"
+        }, "The env variable names should have been parsed to InputDetails with defaults"
 
     def test_task_env_list_of_keys(self):
         manifest = dedent(
@@ -297,9 +341,9 @@ class TestDeserialization:
         task = Task(**yaml.load(manifest, yaml.FullLoader))
 
         assert task.env == {
-            "FOO": InputDetails(description="N/A"),
-            "BAR": InputDetails(description="N/A"),
-        }, "The env variable names should have been tasked to InputDetails with defaults"
+            "FOO": InputDetails(description=None),
+            "BAR": InputDetails(description=None),
+        }, "The env variable names should have been parsed to InputDetails with defaults"
 
     def test_task_env_invalid(self):
         manifest = dedent(
@@ -346,7 +390,7 @@ class TestDeserialization:
         assert task.env == {
             "FOO": InputDetails(description="foo description", required=False, default="booya", type=str),
             "BAR": InputDetails(description="bar description", required=True, default=None, type=bool),
-        }, "The env variable names should have been tasked to InputDetails with defaults"
+        }, "The env variable names should have been parsed to InputDetails with defaults"
 
     def test_task_env_optional(self):
         manifest = dedent(
@@ -370,7 +414,7 @@ class TestDeserialization:
         assert task.env == {
             "FOO": InputDetails(description="foo description", required=False),
             "BAR": InputDetails(description="bar description", required=True),
-        }, "The env variable names should have been tasked to InputDetails with defaults"
+        }, "The env variable names should have been parsed to InputDetails with defaults"
 
     def test_task_env_specify_both_optional_and_required(self):
         manifest = dedent(
@@ -454,6 +498,30 @@ class TestExecuteTask:
             call.info("  task: ['python', 'run.py']"),
             call.info(f"  cwd: {os.path.dirname(simple_task_manifest_path)}"),
             call.info("  env: FOO=bar, OPTION_WITH_HYPHENS=baz, OUTPUT=/tmp/data"),
+        ]
+
+    def test_execute_task_with_default_env_values(self, simple_task_manifest_path, mock_logger):
+        task = Task.from_yaml(
+            task_with_env(
+                f"""
+                env:
+                  INPUT:
+                    optional: true
+                    default: default-value
+                """
+            ),
+            path="/tmp",
+        )
+        command = Command(
+            task="simple-task",
+            env={},
+        )
+        task.execute(command, dryrun=True)
+        assert mock_logger.method_calls == [
+            call.info("DRYRUN: Would execute with:"),
+            call.info("  task: ['python', 'run.py']"),
+            call.info(f"  cwd: /tmp"),
+            call.info("  env: INPUT=default-value"),
         ]
 
     @pytest.mark.parametrize(

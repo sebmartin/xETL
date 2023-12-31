@@ -209,19 +209,29 @@ class Task(BaseModel):
     @field_validator("env", mode="before")
     @classmethod
     def conform_env(cls, data: Any) -> dict[str, InputDetails]:
-        def conform_value(value: Any) -> InputDetails:
-            if isinstance(value, dict):
-                return InputDetails(**value)
-            return InputDetails(description=str(value))
-
         if isinstance(data, list):
             invalid_keys = [str(key) for key in data if not isinstance(key, str)]
             if invalid_keys:
                 raise ValueError(
                     f"Task env names must be strings, the following are invalid: {', '.join(invalid_keys)}"
                 )
-            data = {key: "N/A" for key in data}
-        return {conform_env_key(key): conform_value(value) for key, value in data.items()}
+            data = {key: None for key in data}
+
+        def conform_value(value: Any) -> InputDetails:
+            if isinstance(value, dict):
+                return InputDetails(**value)
+            return InputDetails(description=str(value) if value is not None else None)
+
+        data = {conform_env_key(key): conform_value(value) for key, value in data.items()}
+
+        if required_with_defaults := [
+            key for key, value in data.items() if value.required and value.default is not None
+        ]:
+            raise ValueError(
+                f"The following task env variables are required but specify a default value which is invalid: {', '.join(required_with_defaults)}"
+            )
+
+        return data
 
     @field_validator("env_type", mode="before")
     @classmethod
@@ -268,7 +278,19 @@ class Task(BaseModel):
         """
 
         self.validate_inputs(command)
-        inputs_env = {conform_env_key(key): str(value) for (key, value) in command.env.items()}
+        # Start with defaults for envs that are not provided
+        inputs_env = {
+            conform_env_key(key): value.default
+            for (key, value) in self.env.items()
+            if not value.required and value.default is not None
+        }
+        # Override with values from the command
+        inputs_env.update(
+            {
+                conform_env_key(key): str(value) if value is not None else self.env.get("default", None)
+                for (key, value) in command.env.items()
+            }
+        )
 
         # TODO: see if we can satisfy the python usecase with only bash (including custom venv)
         match self.env_type:
