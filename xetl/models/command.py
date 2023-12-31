@@ -54,11 +54,8 @@ class Command(BaseModel):
     @field_validator("name", mode="before")
     @classmethod
     def validate_name(cls, value: Any):
-        # TODO: test this
-        if not isinstance(value, str):
-            return value
         valid_characters = set("abcdefghijklmnopqrstuvwxyz0123456789-_")
-        if set(value.lower()) - valid_characters:
+        if isinstance(value, str) and set(value.lower()) - valid_characters:
             raise ValueError(
                 f"Command name '{value}' contains invalid characters. Only letters, numbers, dashes, and underscores are allowed."
             )

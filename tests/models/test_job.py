@@ -1,9 +1,10 @@
+import logging
 import os
 import re
 from textwrap import dedent
 
 import mock
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 import pytest
 
 from xetl.models.job import Job
@@ -174,6 +175,25 @@ def test_host_env_subset():
 
 
 @mock.patch.dict("xetl.models.job.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
+def test_host_env_not_used_warns(caplog):
+    manifest = dedent(
+        """
+        name: Job does not inherit
+        data: /data
+        host-env:
+          - NOT_SET
+        commands: []
+        """
+    )
+    job = Job.from_yaml(manifest)
+    assert (
+        "xetl.models.job",
+        logging.WARNING,
+        "The following host environment variables were not found: NOT_SET",
+    ) in caplog.record_tuples
+
+
+@mock.patch.dict("xetl.models.job.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
 def test_host_env_job_overrides_host_env():
     manifest = dedent(
         """
@@ -216,6 +236,53 @@ def test_command_env_inherits_host_and_job_env():
     assert (
         job.commands[0].env.get("STEP_VAR") == "command-var-value"
     ), "The STEP var should have been inherited by the command"
+
+
+def test_command_env_names_are_conformed():
+    manifest = dedent(
+        f"""
+        name: Job does not inherit
+        data: /data
+        commands:
+          - task: task1
+            env:
+              var-one: 1
+              var_two: 2
+              VAR_THREE: 3
+              VAR-FOUR: 4
+              VarFive: 5
+        """
+    )
+    job = Job.from_yaml(manifest)
+    assert job.commands[0].env == {
+        "VAR_ONE": 1,
+        "VAR_TWO": 2,
+        "VAR_THREE": 3,
+        "VAR_FOUR": 4,
+        "VARFIVE": 5,
+    }, "The command env should have been conformed to uppercase and underscores"
+
+
+@pytest.mark.parametrize(
+    "command_name",
+    ["has some spaces", "invalid@char", "invalid$char", "invalid&char", "invalid:char"],
+)
+def test_command_invalid_name_raises(command_name):
+    manifest = dedent(
+        f"""
+        name: Job does not inherit
+        data: /data
+        commands:
+          - task: task1
+            name: {command_name}
+        """
+    )
+    with pytest.raises(ValidationError) as exc:
+        Job.from_yaml(manifest)
+    assert (
+        f"Command name '{command_name}' contains invalid characters. Only letters, numbers, dashes, and underscores are allowed."
+        in str(exc.value)
+    ), str(exc.value)
 
 
 @pytest.mark.parametrize(

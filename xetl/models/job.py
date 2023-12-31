@@ -90,9 +90,7 @@ class Job(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def load_host_env(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
-            return data  # TODO: test this
-        if host_env := data.get("host-env", data.get("host_env")):
+        if isinstance(data, dict) and (host_env := data.get("host-env", data.get("host_env"))):
             data["host_env"] = [host_env] if isinstance(host_env, str) else host_env
         return data
 
@@ -125,9 +123,8 @@ def inherit_env(job: Job):
             )
         base_env = dict(os.environ)
     else:
-        base_env = {key: os.environ.get(key) for key in host_env}
+        base_env = {key: os.environ.get(key) for key in host_env if key in os.environ}
         if missing_keys := set(host_env) - set(base_env.keys()):
-            # TODO: test this
             logger.warning(
                 "The following host environment variables were not found: {}".format(", ".join(missing_keys))
             )
@@ -166,6 +163,7 @@ def resolve_placeholders(job: Job):
         try:
             value = fuzzy_lookup(obj, keys[0], raise_on_missing=True)
             if isinstance(value, BaseModel | dict) and len(keys) > 1:
+                # TODO: Can variable values be objects? -- we might not need this with the simplified implementation
                 return get_key_value(value, keys[1:], match)  # TODO: test this
             if len(keys) <= 1:
                 return value
