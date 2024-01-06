@@ -1,6 +1,7 @@
 import os
-from argparse import ArgumentParser as StdlibArgumentParser
 import re
+import sys
+from argparse import ArgumentParser as StdlibArgumentParser
 
 from xetl.models.task import Task
 
@@ -30,12 +31,12 @@ class ArgumentParser(StdlibArgumentParser):
         """
         Create a preconfigured argument parser from a task's manifest file.
         """
-        self._task = task if isinstance(task, Task) else Task.from_file(task)
-        super().__init__(name or self._task.run_task, description=self._task.description)
+        self._task = task if isinstance(task, Task) else Task.from_file(task, silent=True)
+        super().__init__(name or self._task.run_command, description=self._task.description)
         add_arguments(self, self._task)
 
     def parse_args(self, args: list[str] | None = None, namespace=None):
-        args = args or []
+        args = args if args is not None else sys.argv[1:]
         arg_name_matcher = re.compile(r"^--([a-zA-Z0-9-_]+)=")
         provided_arg_names = [arg_name[0] for arg in args or [] if (arg_name := arg_name_matcher.match(arg))]
         env_args = [

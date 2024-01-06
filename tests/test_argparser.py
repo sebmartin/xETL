@@ -1,7 +1,9 @@
 import io
 import os
+import sys
 from textwrap import dedent
 from typing import Generator
+
 import mock
 import pytest
 
@@ -10,7 +12,6 @@ from xetl.models.task import Task
 
 COMMAND_PATH = "./tests/fixtures/tasks/download/manifest.yml"
 
-
 @pytest.fixture
 def task() -> Task:
     yaml = dedent(
@@ -18,7 +19,7 @@ def task() -> Task:
         name: download
         description: Download files from a remote server
         env-type: bash
-        run-task: curl http://www.example.com
+        run-command: curl http://www.example.com
         """
     )
     return Task.from_yaml(yaml, "./tests/fixtures/tasks/download")
@@ -61,7 +62,7 @@ def test_argument_parser_help(output_buffer: io.StringIO):
             description: Follow HTTP redirects
             type: bool
             optional: true
-        run-task: python -m download
+        run-command: python -m download
         """
     )
     task = Task.from_yaml(yaml, "./tests/fixtures/tasks/download")
@@ -98,7 +99,7 @@ def test_argument_parser_types(type, value):
             description: The best variable ever
             type: {type}
             required: true
-        run-task: python -m dummy
+        run-command: python -m dummy
         """
     )
     task = Task.from_yaml(yaml, "./tests/fixtures/tasks/download")
@@ -118,7 +119,7 @@ def test_argument_parser_required(required, capsys):
           VAR:
             description: The best variable ever
             required: {required}
-        run-task: python -m dummy
+        run-command: python -m dummy
         """
     )
     task = Task.from_yaml(yaml, "./tests/fixtures/tasks/download")
@@ -144,13 +145,33 @@ def test_argument_parser_default():
             optional: true
             type: int
             default: 1
-        run-task: python -m dummy
+        run-command: python -m dummy
         """
     )
     task = Task.from_yaml(yaml, "./tests/fixtures/tasks/download")
     parser = ArgumentParser(task)
     assert parser.parse_args([]).var == 1
     assert parser.parse_args(["--var=2"]).var == 2
+
+@mock.patch.object(sys, "argv", ["dummy", "--var=2"])
+def test_argument_parser_default_argv():
+    yaml = dedent(
+        """
+        name: dummy
+        description: A dummy job to test argument types
+        env-type: python
+        env:
+          VAR:
+            description: The best variable ever
+            optional: true
+            type: int
+            default: 1
+        run-command: python -m dummy
+        """
+    )
+    task = Task.from_yaml(yaml, "./tests/fixtures/tasks/download")
+    parser = ArgumentParser(task)
+    assert parser.parse_args().var == 2
 
 
 @mock.patch.dict(
@@ -177,7 +198,7 @@ def test_argument_parser_all_from_env(capsys):
           FOLLOW_REDIRECTS:
             description: Follow HTTP redirects
             type: bool
-        run-task: python -m download
+        run-command: python -m download
         """
     )
     task = Task.from_yaml(yaml, "./tests/fixtures/tasks/download")
@@ -213,7 +234,7 @@ def test_argument_parser_some_from_env(capsys):
           FOLLOW_REDIRECTS:
             description: Follow HTTP redirects
             type: bool
-        run-task: python -m download
+        run-command: python -m download
         """
     )
     task = Task.from_yaml(yaml, "./tests/fixtures/tasks/download")
@@ -250,7 +271,7 @@ def test_argument_parser_cli_args_override_env(capsys):
           FOLLOW_REDIRECTS:
             description: Follow HTTP redirects
             type: bool
-        run-task: python -m download
+        run-command: python -m download
         """
     )
     task = Task.from_yaml(yaml, "./tests/fixtures/tasks/download")

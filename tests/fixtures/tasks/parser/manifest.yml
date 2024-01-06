@@ -1,7 +1,7 @@
 name: parser
 env-type: python
-run-task: python run.py
+run-command: python run.py
 env:
   FILES: A local path to a directory containing raw files
   OUTPUT: A local path to store the output
-test-task: py.test
+test-command: py.test

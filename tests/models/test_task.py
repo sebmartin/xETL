@@ -31,7 +31,7 @@ def task_with_env(env: str) -> str:
         type: task
         env-type: python
         {env}
-        run-task: python run.py
+        run-command: python run.py
         """
     ).format(env=dedent(env))
 
@@ -55,8 +55,8 @@ def simple_task_manifest_yml():
             description: the result of the task
             type: string
             required: true
-        run-task: python run.py
-        test-task: py.test
+        run-command: python run.py
+        test-command: py.test
         """
     )
 
@@ -72,7 +72,8 @@ def bash_task_task_manifest_yml():
         """
         name: bash-task-task
         env-type: bash
-        run-task: ls -l ~/
+        run-command: ls -l ~/
+        test-command: py.test
         """
     )
 
@@ -89,7 +90,7 @@ def complex_task_task_manifest_yml():
         name: complex-task-task
         type: task
         env-type: bash
-        run-task: echo "hello world" | awk '{print $2}'
+        run-command: echo "hello world" | awk '{print $2}'
         """
     )
 
@@ -164,7 +165,7 @@ class TestDiscoverTasks:
         )
         assert sorted(tasks.keys()) == sorted(["splitter", "download", "parser"])
 
-    @pytest.mark.parametrize("required_key", ["name", "run-task"])
+    @pytest.mark.parametrize("required_key", ["name", "run-command"])
     def test_discover_tasks_ignore_missing_required_manifest_field(
         self, required_key, tasks_fixtures_path, tmpdir, caplog
     ):
@@ -179,7 +180,7 @@ class TestDiscoverTasks:
                 """
                 name: invalid-manifest-task
                 type: task
-                run-task: python run.py
+                run-command: python run.py
                 """
             ),
             flags=re.MULTILINE,
@@ -221,8 +222,8 @@ class TestDeserialization:
             "OPTION_WITH_HYPHENS": InputDetails(description="something else"),
             "OUTPUT": InputDetails(description="the result of the task", type=str),
         }, "The env variable names should have been parsed to uppercase and hyphens replaced with underscores"
-        assert task.run_task == "python run.py"
-        assert task.test_task == "py.test"
+        assert task.run_command == "python run.py"
+        assert task.test_command == "py.test"
 
     @pytest.mark.parametrize("env_type", [1, "not-a-valid-env-type"])
     def test_task_env_type_invalid(self, env_type):
@@ -232,7 +233,7 @@ class TestDeserialization:
             type: task
             env_type: {env_type}
             path: /tmp
-            run-task: python run.py
+            run-command: python run.py
             """
         )
         with pytest.raises(ValidationError) as exc:
@@ -250,7 +251,7 @@ class TestDeserialization:
               VAR:
                 optional: true
                 default: booya
-            run-task: python run.py
+            run-command: python run.py
             """
         )
         task = Task(**yaml.load(manifest, yaml.FullLoader))
@@ -269,19 +270,35 @@ class TestDeserialization:
             env:
               VAR1:
                 required: true
-                default: booya
+                default: default1
               VAR2:
                 optional: false
-                default: booya
-            run-task: python run.py
+                default: default2
+            run-command: python run.py
             """
         )
         with pytest.raises(ValidationError) as exc:
-            task = Task(**yaml.load(manifest, yaml.FullLoader))
+            Task(**yaml.load(manifest, yaml.FullLoader))
         assert (
             "The following task env variables are required but specify a default value which is invalid: VAR1, VAR2"
             in str(exc.value)
         )
+
+    def test_task_env_default_implicitly_optional(self):
+        manifest = dedent(
+            """
+            name: simple-task
+            type: task
+            env_type: python
+            path: /tmp
+            env:
+              VAR1:
+                default: booya
+            run-command: python run.py
+            """
+        )
+        task = Task(**yaml.load(manifest, yaml.FullLoader))
+        assert task.env["VAR1"].required is False, "Should automatically be optional if a default is specified"
 
     def test_task_env_all_defaults(self):
         manifest = dedent(
@@ -293,7 +310,7 @@ class TestDeserialization:
             env:
               - FOO
               - BAR
-            run-task: python run.py
+            run-command: python run.py
             """
         )
         task = Task(**yaml.load(manifest, yaml.FullLoader))
@@ -314,7 +331,7 @@ class TestDeserialization:
               FOO: foo description
               BAR: bar description
               NOT-A-STRING: 1
-            run-task: python run.py
+            run-command: python run.py
             """
         )
         task = Task(**yaml.load(manifest, yaml.FullLoader))
@@ -335,7 +352,7 @@ class TestDeserialization:
             env:
               - FOO
               - BAR
-            run-task: python run.py
+            run-command: python run.py
             """
         )
         task = Task(**yaml.load(manifest, yaml.FullLoader))
@@ -357,7 +374,7 @@ class TestDeserialization:
               - GOOD
               - 2.2
               - 3-fine
-            run-task: python run.py
+            run-command: python run.py
             """
         )
         with pytest.raises(ValidationError) as exc:
@@ -382,7 +399,7 @@ class TestDeserialization:
                 description: bar description
                 required: true
                 type: boolean
-            run-task: python run.py
+            run-command: python run.py
             """
         )
         task = Task(**yaml.load(manifest, yaml.FullLoader))
@@ -406,7 +423,7 @@ class TestDeserialization:
               BAR:
                 description: bar description
                 optional: false
-            run-task: python run.py
+            run-command: python run.py
             """
         )
         task = Task(**yaml.load(manifest, yaml.FullLoader))
@@ -428,7 +445,7 @@ class TestDeserialization:
                 description: foo description
                 optional: true
                 required: true
-            run-task: python run.py
+            run-command: python run.py
             """
         )
         with pytest.raises(ValidationError) as exc:
@@ -503,7 +520,7 @@ class TestExecuteTask:
     def test_execute_task_with_default_env_values(self, simple_task_manifest_path, mock_logger):
         task = Task.from_yaml(
             task_with_env(
-                f"""
+                """
                 env:
                   INPUT:
                     optional: true
@@ -590,7 +607,7 @@ class TestExecuteTask:
         caplog.set_level("INFO")
         task = Task.from_yaml(
             task_with_env(
-                f"""
+                """
                 env:
                   INPUT: description, default has no type validation
                 """
@@ -610,7 +627,7 @@ class TestExecuteTask:
         caplog.set_level("INFO")
         task = Task.from_yaml(
             task_with_env(
-                f"""
+                """
                 env:
                   INPUT1: description, default has no type validation
                   INPUT2: description, default has no type validation
@@ -637,7 +654,7 @@ class TestExecuteTask:
     def test_execute_task_valid_missing_required_fields(self):
         task = Task.from_yaml(
             task_with_env(
-                f"""
+                """
                 env:
                   REQUIRED_INPUT:
                     description: This field is required

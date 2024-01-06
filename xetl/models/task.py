@@ -5,12 +5,14 @@ import subprocess
 from enum import Enum
 from typing import Any, Type
 
-from pydantic import BaseModel, ValidationError, field_validator, model_validator
+from pydantic import (BaseModel, ValidationError, field_validator,
+                      model_validator)
 
 from xetl.models import EnvVariableType
 from xetl.models.command import Command
 from xetl.models.utils.dicts import conform_env_key, conform_key
-from xetl.models.utils.io import InvalidManifestError, ManifestLoadError, load_file, parse_yaml
+from xetl.models.utils.io import (InvalidManifestError, ManifestLoadError,
+                                  load_file, parse_yaml)
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,8 @@ class InputDetails(BaseModel):
                 if "required" in data:
                     raise ValueError("Cannot specify both `required` and `optional`")
                 data["required"] = not data.pop("optional")
+            if data.get("default") is not None:
+                data["required"] = data.get("required", False)
         return data
 
     @field_validator("type", mode="before")
@@ -159,12 +163,12 @@ class Task(BaseModel):
             ```
     """
 
-    run_task: str
+    run_command: str
     """
-    The task to execute when running the task. The task is executed in with the "working directory"
+    The shell command to execute when running the task. This shell command is executed with the "working directory"
     set to the value in the `path` property (typically the directory containing the task's manifest.yml file)
     and executes with the ENV variables set (see the `env` property). The task depends on the `env_type`
-    which has some impact on the environment in which the task is executed.
+    which has some impact on the environment in which the shell command is executed.
 
     The inputs are accessed via environment variables. Each input name is converted to a naming convention that
     is compatible with environment variables. The naming convention is as follows:
@@ -174,16 +178,17 @@ class Task(BaseModel):
     Any `env` name that does not follow this convention will be converted.
     """
 
-    test_task: str | None = None
+    test_command: str | None = None
     """
-    An optional task to execute when running the task's tests. This is currently experimental and not
+    An optional command to execute when running the task's tests. This is currently experimental and not
     completely implemented. The idea is to be able to build some ergonomics around being able to run all tests
     for all tasks regardless of their implementation (python, bash, rust, etc.)
     """  # TODO: add a task for this to the CLI
 
     @classmethod
-    def from_file(cls, path: str) -> "Task":
-        logger.info(f"Loading task at: {path}")
+    def from_file(cls, path: str, silent=False) -> "Task":
+        if not silent:
+            logger.info(f"Loading task at: {path}")
         yaml_content = load_file(path)
         try:
             return cls.from_yaml(yaml_content, path=os.path.dirname(path))
@@ -295,9 +300,9 @@ class Task(BaseModel):
         # TODO: see if we can satisfy the python usecase with only bash (including custom venv)
         match self.env_type:
             case EnvType.PYTHON:
-                task = shlex.split(self.run_task)
+                task = shlex.split(self.run_command)
             case EnvType.BASH:
-                task = ["/bin/bash", "-c", self.run_task]
+                task = ["/bin/bash", "-c", self.run_command]
 
         if dryrun:
             logger.info("DRYRUN: Would execute with:")

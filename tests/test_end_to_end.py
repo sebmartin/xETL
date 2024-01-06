@@ -2,6 +2,7 @@ import os
 import re
 import subprocess
 from textwrap import dedent
+
 import pytest
 
 
@@ -53,7 +54,7 @@ def job_manifest(tasks_repo_path, output_dir, tmpdir):
 @pytest.fixture
 def print_env_task(tasks_repo_path):
     print_env_task = dedent(
-        f"""
+        """
         name: print-env
         description: Prints all env variables
         env-type: bash
@@ -70,7 +71,7 @@ def print_env_task(tasks_repo_path):
           INPUT2:
             description: Second input variable
             type: bool
-        run-task: |
+        run-command: |
             echo "Temp values stored at $TEMP_FILE"
             /usr/bin/env > $TEMP_FILE
             ls "$TEMP_FILE"
@@ -99,7 +100,7 @@ def filter_env_task(tasks_repo_path):
           OUTPUT:
             description: File to write concatenated files to
             type: string
-        run-task: cat $FILE | grep $PATTERN | tee $OUTPUT
+        run-command: cat $FILE | grep $PATTERN | tee $OUTPUT
         """
     )
     filter_env_task_path = tasks_repo_path.mkdir("filter") / "manifest.yml"
@@ -304,7 +305,7 @@ def test_execute_with_failure(output_dir, tasks_repo_path, tmpdir):
         name: fail
         description: This is a task that always fails
         env-type: bash
-        run-task: cat /file/that/doesnt/exist
+        run-command: cat /file/that/doesnt/exist
         """
     )
     filter_env_task_path = tasks_repo_path.mkdir("filter") / "manifest.yml"

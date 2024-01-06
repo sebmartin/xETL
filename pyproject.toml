@@ -5,6 +5,7 @@ description = "An orchestation library for sequencing executions but don't call 
 authors = ["Sebastien Martin"]
 license = "Apache License 2.0"
 readme = "README.md"
+virtualenvs.in-project = true
 
 [tool.poetry.dependencies]
 python = "^3.11"
