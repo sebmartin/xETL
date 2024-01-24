@@ -52,13 +52,13 @@ def job_manifest_multiple_commands(tasks_fixtures_path):
         data: /data
         tasks: {tasks_fixtures_path}
         commands:
-          - name: Download
+          - name: Download-File
             task: download
             env:
               BASE_URL: http://example.com/data
               THROTTLE: 1000
               OUTPUT: /tmp/data
-          - name: Splitter
+          - name: Split_File
             task: splitter
             env:
               FILES: /tmp/data

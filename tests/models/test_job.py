@@ -4,8 +4,8 @@ import re
 from textwrap import dedent
 
 import mock
-from pydantic import BaseModel, ValidationError
 import pytest
+from pydantic import ValidationError
 
 from xetl.models.job import Job
 from xetl.models.utils.io import InvalidManifestError, ManifestLoadError
@@ -171,7 +171,7 @@ def test_host_env_subset():
     )
     job = Job.from_yaml(manifest)
     assert job.env.get("VAR1") == "host-var1-value", "VAR1 should have been loaded from the HOST env"
-    assert job.env.get("VAR2") == None, "VAR2 should NOT have been loaded from the HOST env"
+    assert job.env.get("VAR2") is None, "VAR2 should NOT have been loaded from the HOST env"
 
 
 @mock.patch.dict("xetl.models.job.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
@@ -185,7 +185,7 @@ def test_host_env_not_used_warns(caplog):
         commands: []
         """
     )
-    job = Job.from_yaml(manifest)
+    Job.from_yaml(manifest)
     assert (
         "xetl.models.job",
         logging.WARNING,
@@ -213,7 +213,7 @@ def test_host_env_job_overrides_host_env():
 @mock.patch.dict("xetl.models.job.os.environ", {"HOST_VAR": "host-var-value"}, clear=True)
 def test_command_env_inherits_host_and_job_env():
     manifest = dedent(
-        f"""
+        """
         name: Job does not inherit
         data: /data
         host-env:
@@ -240,7 +240,7 @@ def test_command_env_inherits_host_and_job_env():
 
 def test_command_env_names_are_conformed():
     manifest = dedent(
-        f"""
+        """
         name: Job does not inherit
         data: /data
         commands:
@@ -422,7 +422,7 @@ def test_resolve_placeholders_none_value(null_value):
     )
     job = Job.from_yaml(manifest)
 
-    assert job.commands[0].env["PLAIN"] == None
+    assert job.commands[0].env["PLAIN"] is None
     assert job.commands[0].env["EMBEDDED"] == "this is null", "None should be converted to a string as 'null'"
 
 
@@ -628,7 +628,7 @@ def test_resolve_unknown_env_variable_with_previous_raises():
 
 def test_resolve_incomplete_variable_path_raises():
     manifest = dedent(
-        f"""
+        """
         name: Single composed job manifest
         data: /data
         commands:
@@ -641,7 +641,7 @@ def test_resolve_incomplete_variable_path_raises():
             task: download
             env:
               BASE_URL: http://example.com/data
-              OUTPUT: ${{previous}} # missing env key
+              OUTPUT: ${previous} # missing env key
         """
     )
     with pytest.raises(ValueError) as exc_info:

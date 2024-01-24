@@ -363,4 +363,4 @@ def test_invalid_job_yaml(tmpdir):
 
     actual_output = result.stdout.decode("utf-8")
     assert result.returncode == 1, actual_output
-    assert f"File does not exist: {tmpdir}/job.yml" in actual_output
+    assert f"Job manifest file does not exist: {tmpdir}/job.yml" in actual_output

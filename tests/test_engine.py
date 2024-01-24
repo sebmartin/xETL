@@ -1,7 +1,8 @@
 import os
 from textwrap import dedent
-import pytest
+
 import mock
+import pytest
 
 from xetl import engine
 from xetl.models.command import Command
@@ -43,8 +44,8 @@ def test_execute_job_multiple_commands(task_execute, job_manifest_multiple_comma
         for call in task_execute.call_args_list
     ]
     assert comands_and_commands == [
-        "task: download, command: Download, dryrun: False",
-        "task: splitter, command: Splitter, dryrun: False",
+        "task: download, command: Download-File, dryrun: False",
+        "task: splitter, command: Split_File, dryrun: False",
     ]
 
 
@@ -97,23 +98,32 @@ def test_execute_job_with_unknown_task(task_execute, job_manifest_simple, tasks_
 
 
 @pytest.mark.parametrize(
-    "skip_to, expected_executed_commands",
+    "commands, expected_executed_commands",
     [
-        (None, ["Download", "Splitter"]),
-        ("download", ["Download", "Splitter"]),
-        ("splitter", ["Splitter"]),
-        ("SPLITTER", ["Splitter"]),
+        (None, ["Download-File", "Split_File"]),
+        ([], []),
+        ("", []),
+        # strings
+        ("download-file,split-file", ["Download-File", "Split_File"]),
+        ("download-file , split-file", ["Download-File", "Split_File"]),
+        ("download-file", ["Download-File"]),
+        ("split-file", ["Split_File"]),
+        ("SPLIT-FILE", ["Split_File"]),
+        ("SPLIT_FILE ", ["Split_File"]),
+        # lists
+        (["download-file", "split-file"], ["Download-File", "Split_File"]),
+        (["download-file"], ["Download-File"]),
+        (["split-file"], ["Split_File"]),
     ],
-    ids=["not-set", "skip-to-command-1", "skip-to-command-2", "case-insensitive"],
 )
 @mock.patch("xetl.models.task.Task.execute", return_value=0)
-def test_execute_job_skip_to(
+def test_execute_job_filtered_commands(
     task_execute,
-    skip_to,
+    commands,
     expected_executed_commands,
     job_manifest_multiple_commands_path,
 ):
-    engine.execute_job(job_manifest_multiple_commands_path, skip_to=skip_to)
+    engine.execute_job(job_manifest_multiple_commands_path, commands)
 
     actual_executed_commands = [
         (call.kwargs.get("command") or call.args[0]).name for call in task_execute.call_args_list

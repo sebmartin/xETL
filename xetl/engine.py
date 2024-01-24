@@ -1,13 +1,13 @@
 import logging
 import os
-from pprint import pprint
 
 import yaml
 
 from xetl.logging import LogContext, log_context
-from xetl.models.job import Job
 from xetl.models.command import Command
+from xetl.models.job import Job
 from xetl.models.task import Task, TaskFailure, UnknownTaskError, discover_tasks
+from xetl.models.utils.dicts import conform_key
 
 COMMANDS_REPO_PATH = os.path.abspath(os.path.dirname(__file__) + "/tasks")
 
@@ -19,7 +19,15 @@ class NoAliasDumper(yaml.SafeDumper):
         return True
 
 
-def execute_job(manifest_path: str, skip_to: str | None = None, dryrun=False):
+def execute_job(manifest_path: str, commands: list[str] | str | None = None, dryrun=False):
+    if isinstance(commands, str):
+        commands = commands.split(",")
+    elif commands == []:
+        logger.warning("No commands to execute")
+        return
+    if commands is not None:
+        commands = [conform_key(name.strip()) for name in commands]
+
     job = Job.from_file(manifest_path)
     with log_context(LogContext.JOB, "Executing job: {}".format(job.name)):
         if dryrun:
@@ -39,23 +47,24 @@ def execute_job(manifest_path: str, skip_to: str | None = None, dryrun=False):
 
         if tasks_repo_paths := job.tasks:
             logger.info(f"Discovering tasks at paths: {tasks_repo_paths}")
-            tasks = discover_tasks(tasks_repo_paths)
-            if not tasks:
+            available_tasks = discover_tasks(tasks_repo_paths)
+            if not available_tasks:
                 logger.error("Could not find any tasks at paths {}".format(tasks_repo_paths))
                 return
         else:
             logger.warning("The property `tasks` is not defined in the job manifest, no tasks will be available")
-            tasks = {}
-        logger.info(f"Available tasks detected:")
-        for cmd in tasks.values():
+            available_tasks = {}
+        logger.info("Available tasks detected:")
+        for cmd in available_tasks.values():
             logger.info(f" - {cmd.name}")
 
-        # Rudimentary implementation, a more robust implementation would consider a complex DAG of commands
-        if skip_to and job.commands:
-            while not job.commands[0].name or job.commands[0].name.lower() != skip_to.lower():
-                logger.warning(f"Skipping command: {job.commands[0].name or job.commands[0].task}")
-                del job.commands[0]
-        execute_job_commands(job.name, job.commands, tasks, dryrun)
+        filtered_commands = []
+        for command in job.commands:
+            if commands is None or command.name and conform_key(command.name) in commands:
+                filtered_commands.append(command)
+            else:
+                logger.warning(f"Skipping command `{command.name}`")
+        execute_job_commands(job.name, filtered_commands, available_tasks, dryrun)
 
         logger.info("Done! \\o/")
 

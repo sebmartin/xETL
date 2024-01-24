@@ -5,14 +5,17 @@ import subprocess
 from enum import Enum
 from typing import Any, Type
 
-from pydantic import (BaseModel, ValidationError, field_validator,
-                      model_validator)
+from pydantic import BaseModel, ValidationError, field_validator, model_validator
 
 from xetl.models import EnvVariableType
 from xetl.models.command import Command
 from xetl.models.utils.dicts import conform_env_key, conform_key
-from xetl.models.utils.io import (InvalidManifestError, ManifestLoadError,
-                                  load_file, parse_yaml)
+from xetl.models.utils.io import (
+    InvalidManifestError,
+    ManifestLoadError,
+    load_file,
+    parse_yaml,
+)
 
 logger = logging.getLogger(__name__)
 
