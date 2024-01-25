@@ -21,7 +21,7 @@ def strip_dates(string):
 
 
 @pytest.fixture
-def job_manifest(tasks_repo_path, output_dir, tmpdir):
+def job_manifest(tasks_repo_path, print_env_task, filter_env_task, output_dir, tmpdir):
     job = dedent(
         f"""
         name: test-job
@@ -108,7 +108,41 @@ def filter_env_task(tasks_repo_path):
     return filter_env_task_path
 
 
-def test_execute_bash_job(job_manifest, print_env_task, filter_env_task, output_dir, tmpdir):
+@pytest.fixture
+def minimal_job_manifest(tasks_repo_path, output_dir, tmpdir):
+    filter_env_task = dedent(
+        """
+        name: echo
+        env-type: bash
+        env:
+          MESSAGE:
+            descriptiong: The message to print
+            type: string
+        run-command: echo $MESSAGE
+        """
+    )
+    filter_env_task_path = tasks_repo_path.mkdir("echo") / "manifest.yml"
+    (filter_env_task_path).write_text(filter_env_task, encoding="utf-8")
+
+    job = dedent(
+        f"""
+        name: test-job
+        description: A test job to run end-to-end tests on
+        data: {output_dir}
+        tasks: {tasks_repo_path}
+        commands:
+          - name: echo
+            task: echo
+            env:
+              MESSAGE: Hello world!
+        """
+    )
+    job_path = tmpdir / "job.yml"
+    (job_path).write_text(job, encoding="utf-8")
+    return job_path
+
+
+def test_execute_bash_job(job_manifest, output_dir, tmpdir):
     result = subprocess.run(
         [
             ".venv/bin/python",
@@ -186,13 +220,13 @@ def test_execute_bash_job(job_manifest, print_env_task, filter_env_task, output_
     assert strip_dates(actual_result.strip()) == strip_dates(expected_output.strip())
 
 
-def test_execute_bash_job_dryrun(job_manifest, print_env_task, filter_env_task, output_dir, tmpdir):
+def test_execute_bash_job_dryrun(job_manifest, tmpdir):
     result = subprocess.run(
         [
             ".venv/bin/python",
             "-m",
             "xetl",
-            str(tmpdir / "job.yml"),
+            job_manifest,
             "--dryrun",
         ],
         stdout=subprocess.PIPE,
@@ -285,6 +319,88 @@ def test_execute_bash_job_dryrun(job_manifest, print_env_task, filter_env_task, 
     assert strip_dates(actual_result.strip()) == strip_dates(expected_output.strip())
 
 
+def test_execute_with_minimal_logging_no_timestamps(minimal_job_manifest, tmpdir):
+    result = subprocess.run(
+        [
+            ".venv/bin/python",
+            "-m",
+            "xetl",
+            minimal_job_manifest,
+            "--log-style",
+            "minimal",
+            "--no-timestamps",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+    expected_output = dedent(
+        """
+        Loading job manifest at: {data_dir}/job.yml
+        Executing job: test-job
+        Parsed manifest for job: test-job
+        Discovering tasks at paths: ['{data_dir}/tasks']
+        Loading task at: {data_dir}/tasks/echo/manifest.yml
+        Available tasks detected:
+         - echo
+        Executing command 1 of 1
+          name: echo
+          description: null
+          task: echo
+          env:
+            MESSAGE: Hello world!
+          skip: false
+        Executing task: echo
+        Hello world!
+        Return code: 0
+        Done! \o/
+        """
+    ).format(data_dir=str(tmpdir), space=" ", error_code=1)
+    actual_result = result.stdout.decode("utf-8")
+    assert strip_dates(actual_result.strip()) == strip_dates(expected_output.strip())
+
+
+def test_execute_with_moderate_logging_no_timestamps(minimal_job_manifest, tmpdir):
+    result = subprocess.run(
+        [
+            ".venv/bin/python",
+            "-m",
+            "xetl",
+            minimal_job_manifest,
+            "--log-style",
+            "moderate",
+            "--no-timestamps",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+    expected_output = dedent(
+        """
+        Loading job manifest at: {data_dir}/job.yml
+        ─╴Executing job: test-job╶─
+        Parsed manifest for job: test-job
+        Discovering tasks at paths: ['{data_dir}/tasks']
+        Loading task at: {data_dir}/tasks/echo/manifest.yml
+        Available tasks detected:
+         - echo
+        ━╸Executing command 1 of 1╺━
+          name: echo
+          description: null
+          task: echo
+          env:
+            MESSAGE: Hello world!
+          skip: false
+        ═╴Executing task: echo╶═
+        Hello world!
+        ═╴Return code: 0╶═
+        Done! \o/
+        """
+    ).format(data_dir=str(tmpdir), space=" ", error_code=1)
+    actual_result = result.stdout.decode("utf-8")
+    assert strip_dates(actual_result.strip()) == strip_dates(expected_output.strip())
+
+
 def test_execute_with_failure(output_dir, tasks_repo_path, tmpdir):
     job = dedent(
         f"""
@@ -316,7 +432,7 @@ def test_execute_with_failure(output_dir, tasks_repo_path, tmpdir):
             ".venv/bin/python",
             "-m",
             "xetl",
-            str(tmpdir / "job.yml"),
+            job_path,
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

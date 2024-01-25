@@ -31,8 +31,8 @@ def logger(mock_handler):
     return logger
 
 
-def print_logs(logger, style: LogStyle):
-    configure_logging(logger, style=style)
+def print_logs(logger, style: LogStyle, timestamps: bool = True):
+    configure_logging(logger, style=style, timestamps=timestamps)
 
     logger.info("Some info without a context")
     logger.warning("A warning without a context")
@@ -70,6 +70,46 @@ def print_logs(logger, style: LogStyle):
                 logger.error("An error at the COMMAND 2.1 level")
                 footer("Return code: 0")
     logger.info("Add one.")
+
+
+@mock.patch("xetl.logging.NestedFormatter._formatted_date", return_value="2023-11-13 23:23:51.228")
+@mock.patch("xetl.logging.sys.stdout.isatty", return_value=False)
+def test_logging_no_timestamps(_, __, logger, mock_handler):
+    print_logs(logger, LogStyle.GAUDY, timestamps=False)
+
+    assert mock_handler.messages == [
+        "Some info without a context",
+        "WARNING A warning without a context",
+        "ERROR An error without a context",
+        "╭──╴My cool job ╶╴╴╶ ╶",
+        "│ Some info at the JOB level",
+        "│ WARNING A warning at the JOB level",
+        "│ ERROR An error at the JOB level",
+        "┏━━╸Command 1 ━╴╴╶ ╶",
+        "┃ Some info at the TASK 1 level",
+        "┃ WARNING A warning at the TASK 1 level",
+        "┃ ERROR An error at the TASK 1 level",
+        "┃╭──╴Task 1.1 ─╴╴╶ ╶",
+        "┃│ Some info at the COMMAND 1.1 level",
+        "┃│ WARNING A warning at the COMMAND 1.1 level",
+        "┃│ ERROR An error at the COMMAND 1.1 level",
+        "┃╰──╴Return code: 0 ─╴╴╶ ╶",
+        "┃╭──╴Task 1.2 ─╴╴╶ ╶",
+        "┃│ Some info at the COMMAND 1.2 level",
+        "┃│ WARNING A warning at the COMMAND 1.2 level",
+        "┃│ ERROR An error at the COMMAND 1.2 level",
+        "┃╰──╴Return code: 0 ─╴╴╶ ╶",
+        "┏━━╸Command 2 ━╴╴╶ ╶",
+        "┃ Some info at the TASK 2 level",
+        "┃ WARNING A warning at the TASK 2 level",
+        "┃ ERROR An error at the TASK 2 level",
+        "┃╭──╴Task 2.1 ─╴╴╶ ╶",
+        "┃│ Some info at the COMMAND 2.1 level",
+        "┃│ WARNING A warning at the COMMAND 2.1 level",
+        "┃│ ERROR An error at the COMMAND 2.1 level",
+        "┃╰──╴Return code: 0 ─╴╴╶ ╶",
+        "Add one.",
+    ]
 
 
 @mock.patch("xetl.logging.NestedFormatter._formatted_date", return_value="2023-11-13 23:23:51.228")

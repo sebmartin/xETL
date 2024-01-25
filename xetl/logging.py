@@ -114,10 +114,16 @@ def colored(text, color: Color):
 
 class NestedFormatter(logging.Formatter):
     def __init__(
-        self, style: LogStyle = LogStyle.GAUDY, context: LogContext = LogContext.NONE, *args, **kwargs
+        self,
+        style: LogStyle = LogStyle.GAUDY,
+        timestamps: bool = True,
+        context: LogContext = LogContext.NONE,
+        *args,
+        **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         self.style = style
+        self.timestamps = timestamps
         self.context = context
         self.stack: list[tuple] = []
         self.line_type = LogLineType.NORMAL
@@ -158,7 +164,7 @@ class NestedFormatter(logging.Formatter):
                 log_format = f"{prefix}{colored(message, Color.BRIGHT_WHITE)}{suffix}"
             case LogLineType.NORMAL:
                 prefix = colored(decorations.record_prefix, Color.BLUE)
-                if self.context in (LogContext.NONE, LogContext.JOB, LogContext.TASK):
+                if not self.timestamps or self.context in (LogContext.NONE, LogContext.JOB, LogContext.TASK):
                     prefix = f"{prefix} " if prefix else ""
                     log_format = f"{prefix}{message}"
                 else:
@@ -206,9 +212,9 @@ def log_context(context: LogContext, header: str):
         pop_context()
 
 
-def configure_logging(root_logger, style: LogStyle = LogStyle.GAUDY):
+def configure_logging(root_logger, style: LogStyle = LogStyle.GAUDY, timestamps: bool = True):
     logging.basicConfig(level=logging.DEBUG)
-    formatter = NestedFormatter(style=style)
+    formatter = NestedFormatter(style=style, timestamps=timestamps)
     for handler in root_logger.handlers:
         handler.setFormatter(formatter)
 
