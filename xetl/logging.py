@@ -1,10 +1,9 @@
-from contextlib import contextmanager
-from datetime import datetime
 import logging
-from enum import Enum
-
-from dataclasses import dataclass
 import sys
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
 
 
 class LogContext(Enum):
@@ -21,28 +20,73 @@ class Decorators:
     footer_prefix: str
     header_suffix: str
 
+    @classmethod
+    def none(cls) -> "Decorators":
+        return cls("", "", "", "")
 
-log_decorations = {
-    LogContext.NONE: Decorators(record_prefix="", header_prefix="", footer_prefix="", header_suffix=""),
-    LogContext.JOB: Decorators(
-        header_prefix="╭" + "─" * 2 + "╴",
-        record_prefix="│",
-        footer_prefix="╰" + "─" * 2 + "╴",
-        header_suffix=" ╶╴╴╶ ╶",
-    ),
-    LogContext.TASK: Decorators(
-        header_prefix="┏" + "━" * 2 + "╸",
-        record_prefix="┃",
-        footer_prefix="┗" + "━" * 2 + "╸",
-        header_suffix=" ━╴╴╶ ╶",
-    ),
-    LogContext.COMMAND: Decorators(
-        header_prefix="┃╭" + "─" * 2 + "╴",
-        record_prefix="┃│",
-        footer_prefix="┃╰" + "─" * 2 + "╴",
-        header_suffix=" ─╴╴╶ ╶",
-    ),
-}
+
+class LogStyle(Enum):
+    MINIMAL = 0
+    MODERATE = 1
+    GAUDY = 2
+
+
+def log_decorations(style: LogStyle, context: LogContext) -> Decorators:
+    match style:
+        case LogStyle.MINIMAL:
+            return Decorators.none()
+
+        case LogStyle.MODERATE:
+            match context:
+                case LogContext.NONE:
+                    return Decorators.none()
+                case LogContext.JOB:
+                    return Decorators(
+                        header_prefix="─╴",
+                        record_prefix="",
+                        footer_prefix="─╴",
+                        header_suffix="╶─",
+                    )
+                case LogContext.TASK:
+                    return Decorators(
+                        header_prefix="━╸",
+                        record_prefix="",
+                        footer_prefix="━╸",
+                        header_suffix="╺━",
+                    )
+                case LogContext.COMMAND:
+                    return Decorators(
+                        header_prefix="═╴",
+                        record_prefix="",
+                        footer_prefix="═╴",
+                        header_suffix="╶═",
+                    )
+
+        case LogStyle.GAUDY:
+            match context:
+                case LogContext.NONE:
+                    return Decorators.none()
+                case LogContext.JOB:
+                    return Decorators(
+                        header_prefix="╭──╴",
+                        record_prefix="│",
+                        footer_prefix="╰──╴",
+                        header_suffix=" ╶╴╴╶ ╶",
+                    )
+                case LogContext.TASK:
+                    return Decorators(
+                        header_prefix="┏━━╸",
+                        record_prefix="┃",
+                        footer_prefix="┗━━╸",
+                        header_suffix=" ━╴╴╶ ╶",
+                    )
+                case LogContext.COMMAND:
+                    return Decorators(
+                        header_prefix="┃╭──╴",
+                        record_prefix="┃│",
+                        footer_prefix="┃╰──╴",
+                        header_suffix=" ─╴╴╶ ╶",
+                    )
 
 
 def esc(code):
@@ -69,8 +113,11 @@ def colored(text, color: Color):
 
 
 class NestedFormatter(logging.Formatter):
-    def __init__(self, context: LogContext, *args, **kwargs) -> None:
+    def __init__(
+        self, style: LogStyle = LogStyle.GAUDY, context: LogContext = LogContext.NONE, *args, **kwargs
+    ) -> None:
         super().__init__(*args, **kwargs)
+        self.style = style
         self.context = context
         self.stack: list[tuple] = []
         self.line_type = LogLineType.NORMAL
@@ -99,22 +146,24 @@ class NestedFormatter(logging.Formatter):
             case _:
                 message = record.msg
 
+        decorations = log_decorations(self.style, self.context)
         match self.line_type:
             case LogLineType.HEADER:
-                prefix = colored(log_decorations[self.context].header_prefix, Color.BLUE)
-                suffix = colored(log_decorations[self.context].header_suffix, Color.BLUE)
+                prefix = colored(decorations.header_prefix, Color.BLUE)
+                suffix = colored(decorations.header_suffix, Color.BLUE)
                 log_format = f"{prefix}{colored(message, Color.BRIGHT_WHITE)}{suffix}"
             case LogLineType.FOOTER:
-                prefix = colored(log_decorations[self.context].footer_prefix, Color.BLUE)
-                suffix = colored(log_decorations[self.context].header_suffix, Color.BLUE)
+                prefix = colored(decorations.footer_prefix, Color.BLUE)
+                suffix = colored(decorations.header_suffix, Color.BLUE)
                 log_format = f"{prefix}{colored(message, Color.BRIGHT_WHITE)}{suffix}"
             case LogLineType.NORMAL:
-                prefix = colored(log_decorations[self.context].record_prefix, Color.BLUE)
+                prefix = colored(decorations.record_prefix, Color.BLUE)
                 if self.context in (LogContext.NONE, LogContext.JOB, LogContext.TASK):
                     prefix = f"{prefix} " if prefix else ""
                     log_format = f"{prefix}{message}"
                 else:
-                    log_format = f"{prefix}{colored(self._formatted_date(record), Color.GRAY)}{colored('┊', Color.BLUE)} {message}"
+                    datesep = "" if self.style == LogStyle.MINIMAL else "┊"
+                    log_format = f"{prefix}{colored(self._formatted_date(record), Color.GRAY)}{colored(datesep, Color.BLUE)} {message}"
 
         return log_format
 
@@ -157,9 +206,9 @@ def log_context(context: LogContext, header: str):
         pop_context()
 
 
-def configure_logging(root_logger):
+def configure_logging(root_logger, style: LogStyle = LogStyle.GAUDY):
     logging.basicConfig(level=logging.DEBUG)
-    formatter = NestedFormatter(LogContext.NONE)
+    formatter = NestedFormatter(style=style)
     for handler in root_logger.handlers:
         handler.setFormatter(formatter)
 
