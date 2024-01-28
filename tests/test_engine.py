@@ -149,7 +149,7 @@ def test_execute_job_skipped_commands_still_resolve(task_execute, tasks_fixtures
           - name: references-skipped
             task: splitter
             env:
-              FILES: $data/files
+              FILES: $DATA/files
               SOURCE: ${{previous.OUTPUT}}
               OUTPUT: /tmp/data1/splits
         """

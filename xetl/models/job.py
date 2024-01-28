@@ -34,20 +34,32 @@ class Job(BaseModel):
     path: str | None = None
     """
     The path to the directory containing the job manifest. This is used to resolve relative paths.
-    """
 
-    data: str
-    """
-    The root directory where the job will store its data. If the directory does not exist, it will be created.
-    This value can be referenced in commands using the `$data` placeholder.
+    This value can be referenced in commands using the `$JOB_PATH` placeholder.
 
     e.g.
     ```
         commands:
           - task: my-task
             env:
-              INPUT: $data/input.csv
-              OUTPUT: $data/output.csv
+              INPUT: $JOB_PATH/files/input.csv
+              OUTPUT: $JOB_PATH/files/output.csv
+    ```
+    """
+
+    data: str
+    """
+    The root directory where the job will store its data. If the directory does not exist, it will be created.
+
+    This value can be referenced in commands using the `$DATA` placeholder.
+
+    e.g.
+    ```
+        commands:
+          - task: my-task
+            env:
+              INPUT: $DATA/input.csv
+              OUTPUT: $DATA/output.csv
     ```
     """
 
@@ -87,7 +99,7 @@ class Job(BaseModel):
     def from_file(cls, path: str) -> "Job":
         logger.info("Loading job manifest at: {}".format(path))
         job = parse_yaml_file(path)
-        return cls(**{**job, "path": path})
+        return cls(**{**job, "path": os.path.dirname(path)})
 
     @classmethod
     def from_yaml(cls, yaml_content: str) -> "Job":
@@ -193,6 +205,10 @@ def resolve_placeholders(job: Job):
         if names == ["data"]:
             return job.data
 
+        # Check for the `job_path` variable
+        if names == ["job_path"]:
+            return job.path
+
         # Check for $tmp variables
         tmpdir = os.path.join(job.data, "tmp")
         if tuple(names) == ("tmp", "dir"):
@@ -285,11 +301,10 @@ def resolve_placeholders(job: Job):
                 setattr(model, key, value)
 
     # Resolve all job placeholders
-    # job.data = os.path.abspath(job.data)  # TODO: is this right? Should it be relative to the manifest file? Add a test?
     if job.data is not None and not job.data.startswith(os.path.sep):
         if job.path is not None:
             # Expand data path relative to the manifest file
-            job.data = os.path.abspath(os.path.join(os.path.dirname(job.path), job.data))
+            job.data = os.path.abspath(os.path.join(job.path, job.data))
         else:
             raise ValueError(
                 f"Relative paths cannot be used for `data` when the job manifest is loaded from a string: {job.data}"

@@ -45,13 +45,13 @@ def job_manifest(tasks_repo_path, print_env_task, filter_env_task, output_dir, t
               INPUT1: 100
               INPUT2: false
               TEMP_FILE: ${{tmp.file}}
-              OUTPUT: $data/env.txt
+              OUTPUT: $DATA/env.txt
           - name: filter-env
             task: filter
             env:
               FILE: ${{previous.OUTPUT}}
               PATTERN: -i input
-              OUTPUT: $data/result.txt
+              OUTPUT: $DATA/result.txt
         """
     )
     job_dir = tmp_path / "test-job"
@@ -201,12 +201,12 @@ def test_execute_bash_job(job_manifest, output_dir, tmp_path):
         tmp_file = "/tmp"
     expected_output = dedent(
         """
-        Loading job manifest at: {data_dir}/test-job/job.yml
+        Loading job manifest at: {job_path}/test-job/job.yml
         ╭──╴Executing job: test-job ╶╴╴╶ ╶
         │ Parsed manifest for job: test-job
-        │ Discovering tasks at paths: ['{data_dir}/tasks']
-        │ Loading task at: {data_dir}/tasks/print-env/manifest.yml
-        │ Loading task at: {data_dir}/tasks/filter/manifest.yml
+        │ Discovering tasks at paths: ['{job_path}/tasks']
+        │ Loading task at: {job_path}/tasks/print-env/manifest.yml
+        │ Loading task at: {job_path}/tasks/filter/manifest.yml
         │ Available tasks detected:
         │  - print-env
         │  - filter
@@ -219,7 +219,7 @@ def test_execute_bash_job(job_manifest, output_dir, tmp_path):
         ┃     INPUT1: 100
         ┃     INPUT2: false
         ┃     TEMP_FILE: {tmp_file}
-        ┃     OUTPUT: {data_dir}/output/env.txt
+        ┃     OUTPUT: {job_path}/output/env.txt
         ┃   skip: false
         ┃╭──╴Executing task: print-env ─╴╴╶ ╶
         ┃│2023-11-23 21:36:52.983┊ WARNING Ignoring unexpected env variable for task `print-env`: JOB_VAR. Valid names are: OUTPUT, TEMP_FILE, INPUT1, INPUT2
@@ -233,9 +233,9 @@ def test_execute_bash_job(job_manifest, output_dir, tmp_path):
         ┃   task: filter
         ┃   env:
         ┃     JOB_VAR: job-var-value
-        ┃     FILE: {data_dir}/output/env.txt
+        ┃     FILE: {job_path}/output/env.txt
         ┃     PATTERN: -i input
-        ┃     OUTPUT: {data_dir}/output/result.txt
+        ┃     OUTPUT: {job_path}/output/result.txt
         ┃   skip: false
         ┃╭──╴Executing task: filter ─╴╴╶ ╶
         ┃│2023-11-23 21:36:52.983┊ WARNING Ignoring unexpected env variable for task `filter`: JOB_VAR. Valid names are: FILE, PATTERN, OUTPUT
@@ -244,7 +244,7 @@ def test_execute_bash_job(job_manifest, output_dir, tmp_path):
         ┃╰──╴Return code: 0 ─╴╴╶ ╶
         │ Done! \\o/
         """
-    ).format(data_dir=str(tmp_path), space=" ", tmp_file=tmp_file)
+    ).format(job_path=str(tmp_path), space=" ", tmp_file=tmp_file)
     actual_result = result.stdout.decode("utf-8")
     assert strip_dates(actual_result.strip()) == strip_dates(expected_output.strip())
 
@@ -271,16 +271,17 @@ def test_execute_bash_job_dryrun(job_manifest, tmp_path):
         tmp_file = "/tmp"
     expected_output = dedent(
         """
-        Loading job manifest at: {data_dir}/test-job/job.yml
+        Loading job manifest at: {job_path}/test-job/job.yml
         ╭──╴Executing job: test-job ╶╴╴╶ ╶
         │ Manifest parsed as:
         │   name: test-job
         │   description: A test job to run end-to-end tests on
-        │   data: {data_dir}/output
+        │   path: {job_path}/test-job
+        │   data: {job_path}/output
         │   env:
         │     JOB_VAR: job-var-value
         │   tasks:
-        │   - {data_dir}/tasks
+        │   - {job_path}/tasks
         │   commands:
         │   - name: print-env
         │     task: print-env
@@ -289,17 +290,17 @@ def test_execute_bash_job_dryrun(job_manifest, tmp_path):
         │       INPUT1: 100
         │       INPUT2: false
         │       TEMP_FILE: {tmp_file}
-        │       OUTPUT: {data_dir}/output/env.txt
+        │       OUTPUT: {job_path}/output/env.txt
         │   - name: filter-env
         │     task: filter
         │     env:
         │       JOB_VAR: job-var-value
-        │       FILE: {data_dir}/output/env.txt
+        │       FILE: {job_path}/output/env.txt
         │       PATTERN: -i input
-        │       OUTPUT: {data_dir}/output/result.txt
-        │ Discovering tasks at paths: ['{data_dir}/tasks']
-        │ Loading task at: {data_dir}/tasks/print-env/manifest.yml
-        │ Loading task at: {data_dir}/tasks/filter/manifest.yml
+        │       OUTPUT: {job_path}/output/result.txt
+        │ Discovering tasks at paths: ['{job_path}/tasks']
+        │ Loading task at: {job_path}/tasks/print-env/manifest.yml
+        │ Loading task at: {job_path}/tasks/filter/manifest.yml
         │ Available tasks detected:
         │  - print-env
         │  - filter
@@ -312,14 +313,14 @@ def test_execute_bash_job_dryrun(job_manifest, tmp_path):
         ┃     INPUT1: 100
         ┃     INPUT2: false
         ┃     TEMP_FILE: {tmp_file}
-        ┃     OUTPUT: {data_dir}/output/env.txt
+        ┃     OUTPUT: {job_path}/output/env.txt
         ┃   skip: false
         ┃╭──╴Executing task: print-env ─╴╴╶ ╶
         ┃│2023-11-23 21:36:52.983┊ WARNING Ignoring unexpected env variable for task `print-env`: JOB_VAR. Valid names are: OUTPUT, TEMP_FILE, INPUT1, INPUT2
         ┃│2023-12-12 21:46:35.601┊ DRYRUN: Would execute with:
         ┃│2023-12-12 21:46:35.601┊   run: ./print_env.sh
-        ┃│2023-12-12 21:46:35.601┊   cwd: {data_dir}/tasks/print-env
-        ┃│2023-12-12 21:46:35.601┊   env: JOB_VAR=job-var-value, INPUT1=100, INPUT2=False, TEMP_FILE={tmp_file}, OUTPUT={data_dir}/output/env.txt
+        ┃│2023-12-12 21:46:35.601┊   cwd: {job_path}/tasks/print-env
+        ┃│2023-12-12 21:46:35.601┊   env: JOB_VAR=job-var-value, INPUT1=100, INPUT2=False, TEMP_FILE={tmp_file}, OUTPUT={job_path}/output/env.txt
         ┃╰──╴Return code: 0 ─╴╴╶ ╶
         ┃{space}
         ┏━━╸Executing command 2 of 2 ━╴╴╶ ╶
@@ -328,20 +329,20 @@ def test_execute_bash_job_dryrun(job_manifest, tmp_path):
         ┃   task: filter
         ┃   env:
         ┃     JOB_VAR: job-var-value
-        ┃     FILE: {data_dir}/output/env.txt
+        ┃     FILE: {job_path}/output/env.txt
         ┃     PATTERN: -i input
-        ┃     OUTPUT: {data_dir}/output/result.txt
+        ┃     OUTPUT: {job_path}/output/result.txt
         ┃   skip: false
         ┃╭──╴Executing task: filter ─╴╴╶ ╶
         ┃│2023-11-23 21:36:52.983┊ WARNING Ignoring unexpected env variable for task `filter`: JOB_VAR. Valid names are: FILE, PATTERN, OUTPUT
         ┃│2023-12-12 21:46:35.602┊ DRYRUN: Would execute with:
         ┃│2023-11-23 21:36:52.983┊   run: /bin/bash -c cat $FILE | grep $PATTERN | tee $OUTPUT
-        ┃│2023-12-12 21:46:35.603┊   cwd: {data_dir}/tasks/filter
-        ┃│2023-12-12 21:46:35.603┊   env: JOB_VAR=job-var-value, FILE={data_dir}/output/env.txt, PATTERN=-i input, OUTPUT={data_dir}/output/result.txt
+        ┃│2023-12-12 21:46:35.603┊   cwd: {job_path}/tasks/filter
+        ┃│2023-12-12 21:46:35.603┊   env: JOB_VAR=job-var-value, FILE={job_path}/output/env.txt, PATTERN=-i input, OUTPUT={job_path}/output/result.txt
         ┃╰──╴Return code: 0 ─╴╴╶ ╶
         │ Done! \\o/
         """
-    ).format(data_dir=str(tmp_path), space=" ", tmp_file=tmp_file)
+    ).format(job_path=str(tmp_path), space=" ", tmp_file=tmp_file)
     actual_result = result.stdout.decode("utf-8")
     assert strip_dates(actual_result.strip()) == strip_dates(expected_output.strip())
 

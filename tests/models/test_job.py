@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from xetl.models.job import Job
-from xetl.models.utils.io import InvalidManifestError, ManifestLoadError
+from xetl.models.utils.io import InvalidManifestError, ManifestLoadError, parse_yaml
 
 
 def fake_expanduser(path):
@@ -381,10 +381,13 @@ def test_resolve_placeholders_non_string_types(placeholder, resolved):
         # more than the `value` so that the logic could get confused with the adjacent literal `$`
         ("${VAR}/$$${JOB_VAR}", "value/$job-var-value"),
         ("${VAR}//$${JOB_VAR}", "value//${JOB_VAR}"),
+        ("'[$DATA] *${VAR}* $$${JOB_VAR}$'", "[/data] *value* $job-var-value$"),
         ("'[$data] *${VAR}* $$${JOB_VAR}$'", "[/data] *value* $job-var-value$"),
+        ("'[$JOB_PATH] *${VAR}* $$${JOB_VAR}$'", "[/path/to/job] *value* $job-var-value$"),
+        ("'[$job_path] *${VAR}* $$${JOB_VAR}$'", "[/path/to/job] *value* $job-var-value$"),
     ],
 )
-def test_resolve_placeholders_complex_matches(placeholder, resolved):
+def test_resolve_placeholders_complex_matches(placeholder, resolved, tmp_path):
     manifest = dedent(
         f"""
         name: Job with complex placeholder matches
@@ -399,7 +402,9 @@ def test_resolve_placeholders_complex_matches(placeholder, resolved):
               PLACEHOLDER: {placeholder}
         """
     )
-    job = Job.from_yaml(manifest)
+    job_dict = parse_yaml(manifest)
+    job_dict["path"] = "/path/to/job"
+    job = Job(**job_dict)
 
     assert job.commands[0].env["PLACEHOLDER"] == resolved
 
@@ -439,7 +444,7 @@ def test_resolve_placeholders_recursive_matches():
           - name: first-command
             task: task1
             env:
-              VAR1: $data
+              VAR1: $DATA
               VAR2: "${VAR1}" # would-be-resolved variable
               VAR3: "${VAR3}" # self-referencing
               VAR4: "${VAR5}" # yet-to-be-resolved variable
@@ -453,7 +458,7 @@ def test_resolve_placeholders_recursive_matches():
         "JOB_VAR": "job-var-value",
         "HOST_VAR": "host-var-value",
         "VAR1": "/resolved-data-path",
-        "VAR2": "$data",  # pre-resolution value
+        "VAR2": "$DATA",  # pre-resolution value
         "VAR3": "${VAR3}",  # pre-resolution value
         "VAR4": "${JOB_VAR}",  # pre-resolution value
         "VAR5": "job-var-value",
@@ -471,7 +476,7 @@ def test_resolve_rejects_relative_data_dir_when_loaded_from_string():
             task: download
             env:
               BASE_URL: http://example.com/data
-              OUTPUT: $data/downloader/output
+              OUTPUT: $DATA/downloader/output
         """
     )
     with pytest.raises(ValueError) as exc:
@@ -492,7 +497,7 @@ def test_from_file_expands_relative_data_dir_to_file(tmp_path):
             task: download
             env:
               BASE_URL: http://example.com/data
-              OUTPUT: $data/downloader/output
+              OUTPUT: $DATA/downloader/output
         """
     )
     job_dir = tmp_path / "job"
@@ -503,7 +508,7 @@ def test_from_file_expands_relative_data_dir_to_file(tmp_path):
 
     assert job.data == f"{job_dir}/relative/data/path"
     assert job.commands[0].env["OUTPUT"] == f"{job.data}/downloader/output"
-    assert job.path == str(job_file)
+    assert job.path == str(job_dir)
 
 
 def test_resolve_doesnt_expand_absolute_data_dir():
@@ -516,7 +521,7 @@ def test_resolve_doesnt_expand_absolute_data_dir():
             task: download
             env:
               BASE_URL: http://example.com/data
-              OUTPUT: $data/downloader/output
+              OUTPUT: $DATA/downloader/output
         """
     )
     job = Job.from_yaml(manifest)
@@ -661,7 +666,7 @@ def test_resolve_incomplete_variable_path_raises():
             task: download
             env:
               BASE_URL: http://example.com/data
-              OUTPUT: $data/foo
+              OUTPUT: $DATA/foo
           - name: downloader2
             task: download
             env:
@@ -796,7 +801,7 @@ def test_resolve_variable_chained_placeholders():
           - name: downloader1
             task: download
             env:
-              BASE_URL: http://example.com$data
+              BASE_URL: http://example.com$DATA
               OUTPUT: /tmp/data/d1
           - name: downloader2
             task: download
@@ -826,12 +831,12 @@ def test_resolve_variable_circular_placeholders_raises():
           - name: downloader1
             task: download
             env:
-              BASE_URL: http://example.com$data
+              BASE_URL: http://example.com$DATA
               OUTPUT: ${downloader2.output}
           - name: downloader2
             task: download
             env:
-              BASE_URL: http://example.com$data
+              BASE_URL: http://example.com$DATA
               OUTPUT: ${downloader1.output}
     """
     )
