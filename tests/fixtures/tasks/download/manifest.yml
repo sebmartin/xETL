@@ -1,6 +1,4 @@
 name: download
-env-type: python
-run-command: python run.py
 env:
   BASE_URL: URL to the file listing to crawl (supports Apache/2.4.10 Server)
   FORCE:
@@ -8,4 +6,5 @@ env:
     required: false
   THROTTLE: Minimum number of milliseconds to enforce between server calls
   OUTPUT: Path to directory where the files will be downloaded
+run: python run.py
 test-command: py.test

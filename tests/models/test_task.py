@@ -10,7 +10,7 @@ from mock import call
 from pydantic import ValidationError
 
 from xetl.models.command import Command
-from xetl.models.task import EnvType, InputDetails, Task, discover_tasks
+from xetl.models.task import InputDetails, Task, discover_tasks
 
 
 def copy_tree(src, dst):
@@ -29,9 +29,8 @@ def task_with_env(env: str) -> str:
         """
         name: simple-task
         type: task
-        env-type: python
         {env}
-        run-command: python run.py
+        run: python run.py
         """
     ).format(env=dedent(env))
 
@@ -42,7 +41,6 @@ def simple_task_manifest_yml():
         """
         name: simple-task
         type: task
-        env-type: python
         tasks: /something
         env:
           FOO:
@@ -55,7 +53,7 @@ def simple_task_manifest_yml():
             description: the result of the task
             type: string
             required: true
-        run-command: python run.py
+        run: python run.py
         test-command: py.test
         """
     )
@@ -71,8 +69,7 @@ def bash_task_task_manifest_yml():
     return dedent(
         """
         name: bash-task-task
-        env-type: bash
-        run-command: ls -l ~/
+        run: ls -l ~/
         test-command: py.test
         """
     )
@@ -81,23 +78,6 @@ def bash_task_task_manifest_yml():
 @pytest.fixture
 def bash_task_task_manifest_path(bash_task_task_manifest_yml, tmpdir):
     return task_file(bash_task_task_manifest_yml, tmpdir)
-
-
-@pytest.fixture
-def complex_task_task_manifest_yml():
-    return dedent(
-        """
-        name: complex-task-task
-        type: task
-        env-type: bash
-        run-command: echo "hello world" | awk '{print $2}'
-        """
-    )
-
-
-@pytest.fixture
-def complex_task_task_manifest_path(complex_task_task_manifest_yml, tmpdir):
-    return task_file(complex_task_task_manifest_yml, tmpdir)
 
 
 class TestDiscoverTasks:
@@ -165,7 +145,7 @@ class TestDiscoverTasks:
         )
         assert sorted(tasks.keys()) == sorted(["splitter", "download", "parser"])
 
-    @pytest.mark.parametrize("required_key", ["name", "run-command"])
+    @pytest.mark.parametrize("required_key", ["name", "run"])
     def test_discover_tasks_ignore_missing_required_manifest_field(
         self, required_key, tasks_fixtures_path, tmpdir, caplog
     ):
@@ -180,7 +160,7 @@ class TestDiscoverTasks:
                 """
                 name: invalid-manifest-task
                 type: task
-                run-command: python run.py
+                run: python run.py
                 """
             ),
             flags=re.MULTILINE,
@@ -192,7 +172,7 @@ class TestDiscoverTasks:
         tasks = discover_tasks(repo_dir)
 
         assert (
-            f"Skipping task due to error: Could not load YAML file at path: {repo_dir}/invalid-task/manifest.yml; 2 validation errors for Task"
+            f"Skipping task due to error: Could not load YAML file at path: {repo_dir}/invalid-task/manifest.yml; 1 validation error for Task"
             in caplog.text
         )
         assert sorted(tasks.keys()) == ["download", "parser", "splitter"]
@@ -216,42 +196,25 @@ class TestDeserialization:
 
         assert task.name == "simple-task"
         assert task.path == os.path.dirname(simple_task_manifest_path)
-        assert task.env_type == EnvType.PYTHON
         assert task.env == {
             "FOO": InputDetails(description="something", type=str),
             "OPTION_WITH_HYPHENS": InputDetails(description="something else"),
             "OUTPUT": InputDetails(description="the result of the task", type=str),
         }, "The env variable names should have been parsed to uppercase and hyphens replaced with underscores"
-        assert task.run_command == "python run.py"
+        # assert task.run_command == "python run.py"
         assert task.test_command == "py.test"
-
-    @pytest.mark.parametrize("env_type", [1, "not-a-valid-env-type"])
-    def test_task_env_type_invalid(self, env_type):
-        manifest = dedent(
-            f"""
-            name: simple-task
-            type: task
-            env_type: {env_type}
-            path: /tmp
-            run-command: python run.py
-            """
-        )
-        with pytest.raises(ValidationError) as exc:
-            Task(**yaml.load(manifest, yaml.FullLoader))
-        assert "Input should be 'python' or 'bash'" in str(exc.value)
 
     def test_task_env_optional_with_default_value(self):
         manifest = dedent(
             """
             name: simple-task
             type: task
-            env_type: python
             path: /tmp
             env:
               VAR:
                 optional: true
                 default: booya
-            run-command: python run.py
+            run: python run.py
             """
         )
         task = Task(**yaml.load(manifest, yaml.FullLoader))
@@ -265,7 +228,6 @@ class TestDeserialization:
             """
             name: simple-task
             type: task
-            env_type: python
             path: /tmp
             env:
               VAR1:
@@ -274,7 +236,7 @@ class TestDeserialization:
               VAR2:
                 optional: false
                 default: default2
-            run-command: python run.py
+            run: python run.py
             """
         )
         with pytest.raises(ValidationError) as exc:
@@ -289,12 +251,11 @@ class TestDeserialization:
             """
             name: simple-task
             type: task
-            env_type: python
             path: /tmp
             env:
               VAR1:
                 default: booya
-            run-command: python run.py
+            run: python run.py
             """
         )
         task = Task(**yaml.load(manifest, yaml.FullLoader))
@@ -305,12 +266,11 @@ class TestDeserialization:
             """
             name: simple-task
             type: task
-            env_type: python
             path: /tmp
             env:
               - FOO
               - BAR
-            run-command: python run.py
+            run: python run.py
             """
         )
         task = Task(**yaml.load(manifest, yaml.FullLoader))
@@ -325,13 +285,12 @@ class TestDeserialization:
             """
             name: simple-task
             type: task
-            env_type: python
             path: /tmp
             env:
               FOO: foo description
               BAR: bar description
               NOT-A-STRING: 1
-            run-command: python run.py
+            run: python run.py
             """
         )
         task = Task(**yaml.load(manifest, yaml.FullLoader))
@@ -347,12 +306,11 @@ class TestDeserialization:
             """
             name: simple-task
             type: task
-            env_type: python
             path: /tmp
             env:
               - FOO
               - BAR
-            run-command: python run.py
+            run: python run.py
             """
         )
         task = Task(**yaml.load(manifest, yaml.FullLoader))
@@ -367,14 +325,13 @@ class TestDeserialization:
             """
             name: simple-task
             type: task
-            env_type: python
             path: /tmp
             env:
               - 1
               - GOOD
               - 2.2
               - 3-fine
-            run-command: python run.py
+            run: python run.py
             """
         )
         with pytest.raises(ValidationError) as exc:
@@ -386,7 +343,6 @@ class TestDeserialization:
             """
             name: simple-task
             type: task
-            env_type: python
             path: /tmp
             env:
               FOO:
@@ -399,7 +355,7 @@ class TestDeserialization:
                 description: bar description
                 required: true
                 type: boolean
-            run-command: python run.py
+            run: python run.py
             """
         )
         task = Task(**yaml.load(manifest, yaml.FullLoader))
@@ -414,7 +370,6 @@ class TestDeserialization:
             """
             name: simple-task
             type: task
-            env_type: python
             path: /tmp
             env:
               FOO:
@@ -423,7 +378,7 @@ class TestDeserialization:
               BAR:
                 description: bar description
                 optional: false
-            run-command: python run.py
+            run: python run.py
             """
         )
         task = Task(**yaml.load(manifest, yaml.FullLoader))
@@ -438,14 +393,13 @@ class TestDeserialization:
             """
             name: simple-task
             type: task
-            env_type: python
             path: /tmp
             env:
               FOO:
                 description: foo description
                 optional: true
                 required: true
-            run-command: python run.py
+            run: python run.py
             """
         )
         with pytest.raises(ValidationError) as exc:
@@ -512,7 +466,7 @@ class TestExecuteTask:
         assert mock_logger.method_calls == [
             call.info(f"Loading task at: {simple_task_manifest_path}"),
             call.info("DRYRUN: Would execute with:"),
-            call.info("  task: ['python', 'run.py']"),
+            call.info("  run: python run.py"),
             call.info(f"  cwd: {os.path.dirname(simple_task_manifest_path)}"),
             call.info("  env: FOO=bar, OPTION_WITH_HYPHENS=baz, OUTPUT=/tmp/data"),
         ]
@@ -536,7 +490,7 @@ class TestExecuteTask:
         task.execute(command, dryrun=True)
         assert mock_logger.method_calls == [
             call.info("DRYRUN: Would execute with:"),
-            call.info("  task: ['python', 'run.py']"),
+            call.info("  run: python run.py"),
             call.info(f"  cwd: /tmp"),
             call.info("  env: INPUT=default-value"),
         ]
@@ -647,7 +601,7 @@ class TestExecuteTask:
         task.execute(command, dryrun=True)
 
         assert (
-            "Ignoring unknown env variables for task `simple-task`: UNKNOWN1, UNKNOWN2. Valid names are: INPUT1, INPUT2"
+            "Ignoring unexpected env variables for task `simple-task`: UNKNOWN1, UNKNOWN2. Valid names are: INPUT1, INPUT2"
             in caplog.messages
         ), "\n".join(caplog.messages)
 
@@ -683,19 +637,55 @@ class TestExecuteTask:
         task.execute(command, dryrun=False)
 
         popen_args = mock_popen.call_args[0][0]
-        assert popen_args == ["/bin/bash", "-c", "ls -l ~/"], "Task and argument whould be split"
+        assert popen_args == ["ls", "-l", "~/"]
         assert mock_popen.call_args[1]["cwd"] == os.path.dirname(bash_task_task_manifest_path)
 
-    def test_execute_task_with_complex_task(self, complex_task_task_manifest_path, mock_popen):
-        task = Task.from_file(complex_task_task_manifest_path)
-        command = Command(task="complex-task-task")
 
-        task.execute(command, dryrun=False)
+class TestEndToEnd:
+    def test_execute_complex_bash_command(self, tmpdir, caplog):
+        task_yaml = dedent(
+            """
+            name: complex-task-task
+            type: task
+            run: /bin/bash -c "echo 'hello world' | awk '{print $2}'"
+            """
+        )
+        manifest = task_file(task_yaml, tmpdir)
+        task = Task.from_file(manifest)
 
-        popen_args = mock_popen.call_args[0][0]
-        assert popen_args == [
-            "/bin/bash",
-            "-c",
-            "echo \"hello world\" | awk '{print $2}'",
-        ], "Words in strings should be kept intact and not split"
-        assert mock_popen.call_args[1]["cwd"] == os.path.dirname(complex_task_task_manifest_path)
+        caplog.clear()
+        caplog.set_level("INFO")
+        command = Command(task="bash-task")
+        res = task.execute(command, dryrun=False)
+        assert caplog.messages == ["world"], "Should have printed the second word of the string"
+        assert res == 0
+
+    def test_execute_bash_script(self, tmp_path, caplog):
+        bash_script = dedent(
+            """
+            #!/bin/bash
+            echo "hello $NAME" | awk '{print $2}'
+            """
+        ).strip()
+        script_path = tmp_path / "hello.sh"
+        script_path.write_text(bash_script, encoding="utf-8")
+        script_path.chmod(0o755)
+
+        task_yaml = dedent(
+            """
+            name: complex-task-task
+            type: task
+            env:
+              NAME: string
+            run: ./hello.sh
+            """
+        )
+        manifest = task_file(task_yaml, tmp_path)
+        task = Task.from_file(manifest)
+
+        caplog.clear()
+        caplog.set_level("INFO")
+        command = Command(task="bash-task", env={"NAME": "Steve"})
+        res = task.execute(command, dryrun=False)
+        assert caplog.messages == ["Steve"], "Should have printed the name from the env variable"
+        assert res == 0

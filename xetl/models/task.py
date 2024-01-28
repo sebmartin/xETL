@@ -2,10 +2,10 @@ import logging
 import os
 import shlex
 import subprocess
-from enum import Enum
+import sys
 from typing import Any, Type
 
-from pydantic import BaseModel, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
 
 from xetl.models import EnvVariableType
 from xetl.models.command import Command
@@ -28,15 +28,6 @@ class TaskFailure(Exception):
     def __init__(self, returncode: int) -> None:
         super().__init__()
         self.returncode = returncode
-
-
-class EnvType(Enum):
-    """
-    Types of environments that a task can run in.
-    """
-
-    PYTHON = "python"
-    BASH = "bash"
 
 
 class InputDetails(BaseModel):
@@ -77,6 +68,8 @@ class InputDetails(BaseModel):
 
 
 class Task(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     """
     A task is a single unit of work that can be executed in an job. You can think of a task as a
     mini-job that accepts inputs in the form of ENV variables, does some work, and produces some
@@ -106,12 +99,45 @@ class Task(BaseModel):
     task is executed.
     """
 
-    env_type: EnvType  # TODO: do we need this or just stick to bash?
+    run: list[str]  # TODO: implement this
     """
-    The type of environment that the task will run in. This determines how the run task is executed
-    and can currently accept one of the following values:
-        - `python`: The run task is executed as a python script.
-        - `bash`: The run task is executed as a bash task.
+    The command to run when the task executes. It's a list of strings which will be passed as an argument
+    to `Popen` when executed. However, in YAML it can actually
+    take two forms which will get converted to a list of strings during model validation:
+
+    1. A string containing an executable and its arguments. For example:
+     - run: python -m mymodule --foo $MY_ENV_VAR
+     - run: ./my-script.sh --foo $MY_ENV_VAR
+
+    2. An object with two keys: `interpreter` and `script`. The script can be multi-line and will be
+    passed to the interpreter as an argument. For example:
+
+    ```
+    run:
+      interpreter: /bin/bash -c
+      script: |
+        echo "Hello"
+        echo $MY_ENV_VAR
+    ```
+
+    If the interpreter value is left unspecified, the current process' python interpreter will be used.
+    For example:
+
+    ```
+    run:
+      script: |
+        print("I'm a python script!")
+        print(f"This will execute with the interpreter: {sys.executable}")
+    ```
+
+    For both forms, the current working directory is set to the value of `Task.path`. This makes it
+    possible to use relative paths that are relative to the task's directory.
+
+    All input values that come from the job's `Command` will be set as environment variables and can be
+    used as you would any ENV variable.  Each input name is converted to be compatible with POSIX naming
+    convention for environment variables which is:
+      - all uppercase
+      - all dashes replaced with underscores
     """
 
     env: dict[str, InputDetails] = {}
@@ -166,21 +192,6 @@ class Task(BaseModel):
             ```
     """
 
-    run_command: str
-    """
-    The shell command to execute when running the task. This shell command is executed with the "working directory"
-    set to the value in the `path` property (typically the directory containing the task's manifest.yml file)
-    and executes with the ENV variables set (see the `env` property). The task depends on the `env_type`
-    which has some impact on the environment in which the shell command is executed.
-
-    The inputs are accessed via environment variables. Each input name is converted to a naming convention that
-    is compatible with environment variables. The naming convention is as follows:
-        - all uppercase
-        - all dashes replaced with underscores
-
-    Any `env` name that does not follow this convention will be converted.
-    """
-
     test_command: str | None = None
     """
     An optional command to execute when running the task's tests. This is currently experimental and not
@@ -203,6 +214,8 @@ class Task(BaseModel):
         manifest = parse_yaml(yaml_content)
         manifest["path"] = path
         return cls(**manifest)
+
+    # -- Validation
 
     @model_validator(mode="before")
     @classmethod
@@ -241,21 +254,34 @@ class Task(BaseModel):
 
         return data
 
-    @field_validator("env_type", mode="before")
+    @field_validator("run", mode="before")
     @classmethod
-    def convert_env_type_lowercase(cls, data: Any) -> Any:
+    def generate_run_command(cls, data: Any) -> list[str]:
         if isinstance(data, str):
-            return data.lower()
-        return data
+            # Parse strings as raw executable commands
+            return shlex.split(data)
+        if isinstance(data, list):
+            # Parse lists as raw executable commands and coerce items to strings
+            return [str(value) for value in data]
+        if isinstance(data, dict) and "script" in data.keys():
+            # Parse scripts as inline scripts
+            script = data["script"]
+            interpreter = data.get("interpreter", sys.executable)
+            return shlex.split(interpreter) + [script]
+        raise ValueError(f"Task run command must be a string, a list of strings, or a script object, received: {data}")
 
-    def validate_inputs(self, command: Command) -> None:
+    # -- Execution
+
+    def validate_inputs(self, command: Command, critical_only: bool = False) -> None:
         """
         Validates that the task can be executed with the given command as an input.
         """
-        if unknown_inputs := [input for input in command.env.keys() if conform_env_key(input) not in self.env]:
+        if not critical_only and (
+            unknown_inputs := [input for input in command.env.keys() if conform_env_key(input) not in self.env]
+        ):
             logger.warning(
-                f"Ignoring unknown env variable{'s' if len(unknown_inputs) > 1 else ''} for task `{self.name}`: {', '.join(unknown_inputs)}. "
-                f"Valid names are: {', '.join(self.env.keys())}"
+                f"Ignoring unexpected env variable{'s' if len(unknown_inputs) > 1 else ''} for task `{self.name}`: {', '.join(unknown_inputs)}."
+                + (f" Valid names are: {', '.join(self.env.keys())}" if self.env else "")
             )
 
         if missing_inputs := [
@@ -286,6 +312,7 @@ class Task(BaseModel):
         """
 
         self.validate_inputs(command)
+
         # Start with defaults for envs that are not provided
         inputs_env = {
             conform_env_key(key): value.default
@@ -300,16 +327,9 @@ class Task(BaseModel):
             }
         )
 
-        # TODO: see if we can satisfy the python usecase with only bash (including custom venv)
-        match self.env_type:
-            case EnvType.PYTHON:
-                task = shlex.split(self.run_command)
-            case EnvType.BASH:
-                task = ["/bin/bash", "-c", self.run_command]
-
         if dryrun:
             logger.info("DRYRUN: Would execute with:")
-            logger.info(f"  task: {task}")
+            logger.info(f"  run: {" ".join(self.run)}")
             logger.info(f"  cwd: {self.path}")
             logger.info(f"  env: {', '.join(f'{k}={v}' for k,v in inputs_env.items())}")
             return 0
@@ -317,7 +337,7 @@ class Task(BaseModel):
             env = dict(os.environ)
             env.update(inputs_env)
             process = subprocess.Popen(
-                task,
+                self.run,
                 cwd=self.path,
                 env=env,
                 stdout=subprocess.PIPE,
@@ -335,7 +355,7 @@ class Task(BaseModel):
                         logger.info(output.strip())
             finally:
                 if process.poll() is None:
-                    process.kill()  # tas test this
+                    process.kill()  # TODO test this
                 if process.stdin:
                     process.stdin.close()
                 if process.stdout:

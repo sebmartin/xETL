@@ -1,6 +1,5 @@
 name: parser
-env-type: python
-run-command: python run.py
+run: python run.py
 env:
   FILES: A local path to a directory containing raw files
   OUTPUT: A local path to store the output

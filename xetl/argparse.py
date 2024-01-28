@@ -32,7 +32,7 @@ class ArgumentParser(StdlibArgumentParser):
         Create a preconfigured argument parser from a task's manifest file.
         """
         self._task = task if isinstance(task, Task) else Task.from_file(task, silent=True)
-        super().__init__(name or self._task.run_command, description=self._task.description)
+        super().__init__(name, description=self._task.description)
         add_arguments(self, self._task)
 
     def parse_args(self, args: list[str] | None = None, namespace=None):

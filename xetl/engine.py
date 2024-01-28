@@ -72,18 +72,18 @@ def execute_job(manifest_path: str, commands: list[str] | str | None = None, dry
 def execute_job_commands(job_name: str, commands: list[Command], tasks: dict[str, Task], dryrun: bool):
     for command in commands:
         task = _get_task(command, tasks)
-        task.validate_inputs(command)
+        task.validate_inputs(command, critical_only=True)
 
     for i, command in enumerate(commands):
+        if command.skip:
+            logger.warning(f"Skipping command `{command.name or f'#{i + 1}'}` from job '{job_name}'")
+            continue
         with log_context(LogContext.TASK, f"Executing command {f'{i + 1}'} of {len(commands)}"):
             for line in yaml.dump(command.model_dump(), indent=2, sort_keys=False).strip().split("\n"):
                 logger.info("  " + line)
-            with log_context(LogContext.COMMAND, f"Executing task: {command.task}") as tail:
-                if command.skip:
-                    logger.warning(f"Skipping command `{command.name or f'#{i + 1}'}` from job '{job_name}'")
-                    continue
+            with log_context(LogContext.COMMAND, f"Executing task: {command.task}") as log_footer:
                 returncode = _get_task(command, tasks).execute(command, dryrun)
-                tail(f"Return code: {returncode}")
+                log_footer(f"Return code: {returncode}")
             if i < len(commands) - 1:
                 logger.info("")  # leave a blank line between commands
 
