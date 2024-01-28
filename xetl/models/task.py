@@ -96,7 +96,7 @@ class Task(BaseModel):
     path: str
     """
     The path to the directory containing the task. This will be used as the working directory when the
-    task is executed.
+    task is executed. It's also used to resolve relative paths.
     """
 
     run: list[str]  # TODO: implement this

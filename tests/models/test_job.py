@@ -461,8 +461,7 @@ def test_resolve_placeholders_recursive_matches():
     }, "Only variables referencing other envs (job or host) are resolved"
 
 
-@mock.patch("xetl.models.job.os.path.abspath", side_effect=fake_abspath)
-def test_resolve_placeholders_expands_relative_data_dir(_):
+def test_resolve_rejects_relative_data_dir_when_loaded_from_string():
     manifest = dedent(
         """
         name: Single composed job manifest
@@ -475,10 +474,36 @@ def test_resolve_placeholders_expands_relative_data_dir(_):
               OUTPUT: $data/downloader/output
         """
     )
-    job = Job.from_yaml(manifest)
+    with pytest.raises(ValueError) as exc:
+        Job.from_yaml(manifest)
+    assert (
+        "Relative paths cannot be used for `data` when the job manifest is loaded from a string: relative/data/path"
+        in str(exc.value)
+    )
 
-    assert job.data == "/absolute/path/to/relative/data/path"
+
+def test_from_file_expands_relative_data_dir_to_file(tmp_path):
+    manifest = dedent(
+        """
+        name: Single composed job manifest
+        data: relative/data/path
+        commands:
+          - name: downloader
+            task: download
+            env:
+              BASE_URL: http://example.com/data
+              OUTPUT: $data/downloader/output
+        """
+    )
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    job_file = job_dir / "job.yml"
+    job_file.write_text(manifest)
+    job = Job.from_file(str(job_file))
+
+    assert job.data == f"{job_dir}/relative/data/path"
     assert job.commands[0].env["OUTPUT"] == f"{job.data}/downloader/output"
+    assert job.path == str(job_file)
 
 
 def test_resolve_doesnt_expand_absolute_data_dir():

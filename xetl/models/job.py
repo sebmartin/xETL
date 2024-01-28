@@ -31,6 +31,11 @@ class Job(BaseModel):
     functional impact on the job.
     """
 
+    path: str | None = None
+    """
+    The path to the directory containing the job manifest. This is used to resolve relative paths.
+    """
+
     data: str
     """
     The root directory where the job will store its data. If the directory does not exist, it will be created.
@@ -81,7 +86,8 @@ class Job(BaseModel):
     @classmethod
     def from_file(cls, path: str) -> "Job":
         logger.info("Loading job manifest at: {}".format(path))
-        return cls(**parse_yaml_file(path))
+        job = parse_yaml_file(path)
+        return cls(**{**job, "path": path})
 
     @classmethod
     def from_yaml(cls, yaml_content: str) -> "Job":
@@ -279,7 +285,15 @@ def resolve_placeholders(job: Job):
                 setattr(model, key, value)
 
     # Resolve all job placeholders
-    job.data = os.path.abspath(job.data)
+    # job.data = os.path.abspath(job.data)  # TODO: is this right? Should it be relative to the manifest file? Add a test?
+    if job.data is not None and not job.data.startswith(os.path.sep):
+        if job.path is not None:
+            # Expand data path relative to the manifest file
+            job.data = os.path.abspath(os.path.join(os.path.dirname(job.path), job.data))
+        else:
+            raise ValueError(
+                f"Relative paths cannot be used for `data` when the job manifest is loaded from a string: {job.data}"
+            )
     named_commands = OrderedDict({})
     for command in job.commands:
         traverse_object(command, command, named_commands)
