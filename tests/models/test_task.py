@@ -406,6 +406,108 @@ class TestDeserialization:
             Task(**yaml.load(manifest, yaml.FullLoader))
         assert "Cannot specify both `required` and `optional`" in str(exc.value)
 
+    def test_task_run_string(self):
+        manifest = dedent(
+            """
+            name: simple-task
+            type: task
+            path: /tmp
+            run: ./run.sh --foo bar
+            """
+        )
+        task = Task(**yaml.load(manifest, yaml.FullLoader))
+        assert task.run == ["./run.sh", "--foo", "bar"]
+
+    @mock.patch("xetl.models.task.sys.executable", "/home/user/.venv/python")
+    def test_task_run_script_default_interpreter(self):
+        manifest = dedent(
+            """
+            name: simple-task
+            type: task
+            path: /tmp
+            run:
+              script: print("hello world")
+            """
+        )
+        task = Task(**yaml.load(manifest, yaml.FullLoader))
+        assert task.run == ["/home/user/.venv/python", "-c", 'print("hello world")']
+
+    def test_task_run_script_and_interpreter(self):
+        manifest = dedent(
+            """
+            name: simple-task
+            type: task
+            path: /tmp
+            run:
+              interpreter: /bin/zsh -c
+              script: echo "hello world" | awk '{print $2}'
+            """
+        )
+        task = Task(**yaml.load(manifest, yaml.FullLoader))
+        assert task.run == ["/bin/zsh", "-c", "echo \"hello world\" | awk '{print $2}'"]
+
+    def test_task_run_script_multiline(self):
+        manifest = dedent(
+            """
+            name: simple-task
+            type: task
+            path: /tmp
+            run:
+              interpreter: /bin/bash -c
+              script: |
+                if [ -f /tmp/foo.txt ]; then
+                    cat /tmp/foo.txt
+                fi
+            """
+        )
+        task = Task(**yaml.load(manifest, yaml.FullLoader))
+        assert task.run == ["/bin/bash", "-c", "if [ -f /tmp/foo.txt ]; then\n    cat /tmp/foo.txt\nfi\n"]
+
+    def test_task_run_string_and_script_defaults_to_run(self):
+        manifest = dedent(
+            """
+            name: simple-task
+            type: task
+            path: /tmp
+            run: ./run.sh --foo bar
+            script: print("hello world")
+            """
+        )
+        task = Task(**yaml.load(manifest, yaml.FullLoader))
+        assert task.run == ["./run.sh", "--foo", "bar"]
+
+    def test_task_run_list(self):
+        manifest = dedent(
+            """
+            name: simple-task
+            type: task
+            path: /tmp
+            run:
+             - ./run.sh
+             - --foo
+             - bar
+            """
+        )
+        task = Task(**yaml.load(manifest, yaml.FullLoader))
+        assert task.run == ["./run.sh", "--foo", "bar"]
+
+    def test_task_run_invalid_object(self):
+        manifest = dedent(
+            """
+            name: simple-task
+            type: task
+            path: /tmp
+            run:
+             foo: bar
+            """
+        )
+        with pytest.raises(ValidationError) as exc:
+            Task(**yaml.load(manifest, yaml.FullLoader))
+        assert (
+            "Task run command must be a string, a list of strings, or a script object, received: {'foo': 'bar'}"
+            in str(exc.value)
+        )
+
 
 class TestExecuteTask:
     @pytest.fixture(autouse=True)

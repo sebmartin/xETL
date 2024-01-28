@@ -266,7 +266,7 @@ class Task(BaseModel):
         if isinstance(data, dict) and "script" in data.keys():
             # Parse scripts as inline scripts
             script = data["script"]
-            interpreter = data.get("interpreter", sys.executable)
+            interpreter = data.get("interpreter", f"{sys.executable} -c")
             return shlex.split(interpreter) + [script]
         raise ValueError(f"Task run command must be a string, a list of strings, or a script object, received: {data}")
 
