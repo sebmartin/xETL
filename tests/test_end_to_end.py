@@ -210,7 +210,7 @@ def test_execute_bash_job(job_manifest, output_dir, tmp_path):
         │ Available tasks detected:
         │  - print-env
         │  - filter
-        ┏━━╸Executing command 1 of 2 ━╴╴╶ ╶
+        ┏━━╸Executing command: print-env (1 of 2) ━╴╴╶ ╶
         ┃   name: print-env
         ┃   description: null
         ┃   task: print-env
@@ -227,7 +227,7 @@ def test_execute_bash_job(job_manifest, output_dir, tmp_path):
         ┃│2023-11-23 21:36:52.983┊ {tmp_file}
         ┃╰──╴Return code: 0 ─╴╴╶ ╶
         ┃{space}
-        ┏━━╸Executing command 2 of 2 ━╴╴╶ ╶
+        ┏━━╸Executing command: filter-env (2 of 2) ━╴╴╶ ╶
         ┃   name: filter-env
         ┃   description: null
         ┃   task: filter
@@ -304,7 +304,7 @@ def test_execute_bash_job_dryrun(job_manifest, tmp_path):
         │ Available tasks detected:
         │  - print-env
         │  - filter
-        ┏━━╸Executing command 1 of 2 ━╴╴╶ ╶
+        ┏━━╸Executing command: print-env (1 of 2) ━╴╴╶ ╶
         ┃   name: print-env
         ┃   description: null
         ┃   task: print-env
@@ -323,7 +323,7 @@ def test_execute_bash_job_dryrun(job_manifest, tmp_path):
         ┃│2023-12-12 21:46:35.601┊   env: JOB_VAR=job-var-value, INPUT1=100, INPUT2=False, TEMP_FILE={tmp_file}, OUTPUT={job_path}/output/env.txt
         ┃╰──╴Return code: 0 ─╴╴╶ ╶
         ┃{space}
-        ┏━━╸Executing command 2 of 2 ━╴╴╶ ╶
+        ┏━━╸Executing command: filter-env (2 of 2) ━╴╴╶ ╶
         ┃   name: filter-env
         ┃   description: null
         ┃   task: filter
@@ -371,7 +371,7 @@ def test_execute_with_minimal_logging_no_timestamps(minimal_job_manifest, tmp_pa
         Loading task at: {data_dir}/tasks/echo/manifest.yml
         Available tasks detected:
          - echo
-        Executing command 1 of 1
+        Executing command: echo (1 of 1)
           name: echo
           description: null
           task: echo
@@ -412,7 +412,7 @@ def test_execute_with_moderate_logging_no_timestamps(minimal_job_manifest, tmpdi
         Loading task at: {data_dir}/tasks/echo/manifest.yml
         Available tasks detected:
          - echo
-        ━╸Executing command 1 of 1╺━
+        ━╸Executing command: echo (1 of 1)╺━
           name: echo
           description: null
           task: echo
@@ -480,7 +480,7 @@ def test_nested_job(minimal_job_manifest, tasks_repo_path, tmpdir):
         │ Available tasks detected:
         │  - inner-job
         │  - echo
-        ┏━━╸Executing command 1 of 1 ━╴╴╶ ╶
+        ┏━━╸Executing command: inner-job (1 of 1) ━╴╴╶ ╶
         ┃   name: inner-job
         ┃   description: null
         ┃   task: inner-job
@@ -498,7 +498,7 @@ def test_nested_job(minimal_job_manifest, tasks_repo_path, tmpdir):
         ┃│2023-11-23 21:36:52.983┊ │ Available tasks detected:
         ┃│2023-11-23 21:36:52.983┊ │  - inner-job
         ┃│2023-11-23 21:36:52.983┊ │  - echo
-        ┃│2023-11-23 21:36:52.983┊ ┏━━╸Executing command 1 of 1 ━╴╴╶ ╶
+        ┃│2023-11-23 21:36:52.983┊ ┏━━╸Executing command: echo (1 of 1) ━╴╴╶ ╶
         ┃│2023-11-23 21:36:52.983┊ ┃   name: echo
         ┃│2023-11-23 21:36:52.983┊ ┃   description: null
         ┃│2023-11-23 21:36:52.983┊ ┃   task: echo
@@ -566,7 +566,7 @@ def test_execute_with_failure(output_dir, tasks_repo_path, tmpdir):
         │ Loading task at: {data_dir}/tasks/filter/manifest.yml
         │ Available tasks detected:
         │  - fail
-        ┏━━╸Executing command 1 of 1 ━╴╴╶ ╶
+        ┏━━╸Executing command: fail (1 of 1) ━╴╴╶ ╶
         ┃   name: fail
         ┃   description: null
         ┃   task: fail

@@ -1,4 +1,6 @@
+import logging
 import os
+import re
 from textwrap import dedent
 
 import mock
@@ -27,11 +29,11 @@ def test_execute_job_simple_job(task_execute, job_manifest_simple_path):
     engine.execute_job(job_manifest_simple_path)
 
     comands_and_commands = [
-        f"task: {call.args[0].name}, command: {call.args[1].name}, dryrun: {call.args[2]}"
+        f"task: {call.args[0].name}, env: {call.args[1]}, dryrun: {call.args[2]}"
         for call in task_execute.call_args_list
     ]
     assert comands_and_commands == [
-        "task: download, command: Download, dryrun: False",
+        "task: download, env: {'JOB_VAR': 'job-var-value', 'BASE_URL': 'http://example.com/data', 'THROTTLE': 1000, 'OUTPUT': '/tmp/data'}, dryrun: False",
     ]
 
 
@@ -40,12 +42,14 @@ def test_execute_job_multiple_commands(task_execute, job_manifest_multiple_comma
     engine.execute_job(job_manifest_multiple_commands_path)
 
     comands_and_commands = [
-        f"task: {call.args[0].name}, command: {call.args[1].name}, dryrun: {call.args[2]}"
+        f"task: {call.args[0].name}, env: {call.args[1]}, dryrun: {call.args[2]}"
         for call in task_execute.call_args_list
     ]
     assert comands_and_commands == [
-        "task: download, command: Download-File, dryrun: False",
-        "task: splitter, command: Split_File, dryrun: False",
+        # command: Download-File
+        "task: download, env: {'BASE_URL': 'http://example.com/data', 'THROTTLE': 1000, 'OUTPUT': '/tmp/data'}, dryrun: False",
+        # command: Split_File
+        "task: splitter, env: {'FILES': '/tmp/data', 'OUTPUT': '/tmp/data/splits'}, dryrun: False",
     ]
 
 
@@ -118,16 +122,18 @@ def test_execute_job_with_unknown_task(task_execute, job_manifest_simple, tasks_
 )
 @mock.patch("xetl.models.task.Task.execute", return_value=0)
 def test_execute_job_filtered_commands(
-    task_execute,
-    commands,
-    expected_executed_commands,
-    job_manifest_multiple_commands_path,
+    task_execute, commands, expected_executed_commands, job_manifest_multiple_commands_path, caplog
 ):
+    caplog.set_level(logging.INFO)
     engine.execute_job(job_manifest_multiple_commands_path, commands)
 
+    # Use the logs to decypher which commands executed.. ¯\_(ツ)_/¯
     actual_executed_commands = [
-        (call.kwargs.get("command") or call.args[0]).name for call in task_execute.call_args_list
+        re.match("Executing command: ([^ ]*)", msg)[1]  # type: ignore
+        for msg in caplog.messages
+        if msg.startswith("Executing command: ")
     ]
+
     assert actual_executed_commands == expected_executed_commands
 
 
@@ -156,8 +162,8 @@ def test_execute_job_skipped_commands_still_resolve(task_execute, tasks_fixtures
     )
     engine.execute_job(job_file(job_manifest, tmpdir))
     assert task_execute.call_count == 1, "Task.execute() should have only been called once"
-    executed_command = task_execute.call_args[0][0]
-    assert executed_command.env["SOURCE"] == "/tmp/data1/source"
+    env_arg = task_execute.call_args[0][0]
+    assert env_arg["SOURCE"] == "/tmp/data1/source"
 
 
 @mock.patch("xetl.models.task.Task.validate_inputs", side_effect=ValueError("Invalid inputs"))

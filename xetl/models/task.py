@@ -1,14 +1,19 @@
 import logging
 import os
-import shlex
 import subprocess
-import sys
-from typing import Any, Type
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from xetl.models import EnvVariableType
-from xetl.models.command import Command
+from xetl.models.task_input_details import TaskInputDetails
+from xetl.models.task_test_case import TaskTestCase
 from xetl.models.utils.dicts import conform_env_key, conform_key
 from xetl.models.utils.io import (
     InvalidManifestError,
@@ -16,6 +21,7 @@ from xetl.models.utils.io import (
     load_file,
     parse_yaml,
 )
+from xetl.models.utils.run import parse_run_command
 
 logger = logging.getLogger(__name__)
 
@@ -28,43 +34,6 @@ class TaskFailure(Exception):
     def __init__(self, returncode: int) -> None:
         super().__init__()
         self.returncode = returncode
-
-
-class InputDetails(BaseModel):
-    description: str | None = None
-    required: bool = True
-    default: Any | None = None
-    type: Type[EnvVariableType] | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def set_defaults(cls, data: Any) -> Any:
-        if isinstance(data, dict):
-            data = {conform_key(key): value for key, value in data.items()}
-            if "optional" in data:
-                if "required" in data:
-                    raise ValueError("Cannot specify both `required` and `optional`")
-                data["required"] = not data.pop("optional")
-            if data.get("default") is not None:
-                data["required"] = data.get("required", False)
-        return data
-
-    @field_validator("type", mode="before")
-    def valid_type(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            mapping = {
-                "str": str,
-                "string": str,
-                "int": int,
-                "integer": int,
-                "float": float,
-                "decimal": float,
-                "bool": bool,
-                "boolean": bool,
-            }
-            if type_ := mapping.get(value.lower()):
-                return type_
-        return value
 
 
 class Task(BaseModel):
@@ -140,7 +109,7 @@ class Task(BaseModel):
       - all dashes replaced with underscores
     """
 
-    env: dict[str, InputDetails] = {}
+    env: dict[str, TaskInputDetails] = {}
     """
     A dictionary of environment variable inputs for the task's run task. This instructs the runtime
     engine which environment variables to pass to the task when executing it. When the task is
@@ -192,12 +161,39 @@ class Task(BaseModel):
             ```
     """
 
-    test_command: str | None = None
+    tests: dict[str, TaskTestCase] = {}
     """
-    An optional command to execute when running the task's tests. This is currently experimental and not
-    completely implemented. The idea is to be able to build some ergonomics around being able to run all tests
-    for all tasks regardless of their implementation (python, bash, rust, etc.)
-    """  # TODO: add a task for this to the CLI
+    A dictionary of test cases for the task. The dictionary keys are the names of the test cases. The values
+    represent the `env` that is used to execute the task as well as a verification (`verify`) command or script
+    to validate the test's outputs. The verification command/script is executed in the task's directory.
+
+    e.g.
+    ```
+      tests:
+        my-test:
+          env:
+            INPUT1: foo
+            INPUT2: bar
+          verify: python -m mymodule --foo $MY_INPUT
+    ```
+
+    The format for the `verify` property is similar to the `run` property. It can also be expressed
+    as a script object with an optional `interpreter` property. If the interpreter is not specified,
+    the current process' python interpreter will be used.
+
+    e.g.
+    ```
+      tests:
+        my-test:
+          env:
+            INPUT1: foo
+            INPUT2: bar
+          verify:
+            interpreter: /bin/bash -c
+            script: |
+              diff -u ./test/results.txt ./expected/results.txt
+    ```
+    """
 
     @classmethod
     def from_file(cls, path: str, silent=False) -> "Task":
@@ -229,7 +225,7 @@ class Task(BaseModel):
 
     @field_validator("env", mode="before")
     @classmethod
-    def conform_env(cls, data: Any) -> dict[str, InputDetails]:
+    def conform_env(cls, data: Any) -> dict[str, TaskInputDetails]:
         if isinstance(data, list):
             invalid_keys = [str(key) for key in data if not isinstance(key, str)]
             if invalid_keys:
@@ -238,10 +234,10 @@ class Task(BaseModel):
                 )
             data = {key: None for key in data}
 
-        def conform_value(value: Any) -> InputDetails:
+        def conform_value(value: Any) -> TaskInputDetails:
             if isinstance(value, dict):
-                return InputDetails(**value)
-            return InputDetails(description=str(value) if value is not None else None)
+                return TaskInputDetails(**value)
+            return TaskInputDetails(description=str(value) if value is not None else None)
 
         data = {conform_env_key(key): conform_value(value) for key, value in data.items()}
 
@@ -257,36 +253,25 @@ class Task(BaseModel):
     @field_validator("run", mode="before")
     @classmethod
     def generate_run_command(cls, data: Any) -> list[str]:
-        if isinstance(data, str):
-            # Parse strings as raw executable commands
-            return shlex.split(data)
-        if isinstance(data, list):
-            # Parse lists as raw executable commands and coerce items to strings
-            return [str(value) for value in data]
-        if isinstance(data, dict) and "script" in data.keys():
-            # Parse scripts as inline scripts
-            script = data["script"]
-            interpreter = data.get("interpreter", f"{sys.executable} -c")
-            return shlex.split(interpreter) + [script]
+        if run_command := parse_run_command(data):
+            return run_command
         raise ValueError(f"Task run command must be a string, a list of strings, or a script object, received: {data}")
 
     # -- Execution
 
-    def validate_inputs(self, command: Command, critical_only: bool = False) -> None:
+    def validate_inputs(self, env: dict[str, EnvVariableType], critical_only: bool = False) -> None:
         """
         Validates that the task can be executed with the given command as an input.
         """
         if not critical_only and (
-            unknown_inputs := [input for input in command.env.keys() if conform_env_key(input) not in self.env]
+            unknown_inputs := [input for input in env.keys() if conform_env_key(input) not in self.env]
         ):
             logger.warning(
                 f"Ignoring unexpected env variable{'s' if len(unknown_inputs) > 1 else ''} for task `{self.name}`: {', '.join(unknown_inputs)}."
                 + (f" Valid names are: {', '.join(self.env.keys())}" if self.env else "")
             )
 
-        if missing_inputs := [
-            input for input, details in self.env.items() if details.required and input not in command.env
-        ]:
+        if missing_inputs := [input for input, details in self.env.items() if details.required and input not in env]:
             raise ValueError(
                 f"Missing required input{'s' if len(missing_inputs) > 1 else ''} for task `{self.name}`: {', '.join(missing_inputs)}"
             )
@@ -295,7 +280,7 @@ class Task(BaseModel):
             (env_key, value, expected_type)
             for env_key, value, expected_type in [
                 (env_key, value, self.env[conform_env_key(env_key)].type)
-                for env_key, value in command.env.items()
+                for env_key, value in env.items()
                 if conform_env_key(env_key) in self.env
             ]
             if expected_type not in (Any, None) and not isinstance(value, expected_type)
@@ -306,12 +291,12 @@ class Task(BaseModel):
             ]
             raise ValueError(f"Invalid env values for task `{self.name}`:\n" + "\n".join(details))
 
-    def execute(self, command: Command, dryrun: bool = False) -> int:
+    def execute(self, env: dict[str, EnvVariableType], dryrun: bool = False) -> int:
         """
         Execute the task with inputs from a given command.
         """
-
-        self.validate_inputs(command)
+        env = {conform_env_key(key): value for key, value in env.items()}
+        self.validate_inputs(env)
 
         # Start with defaults for envs that are not provided
         inputs_env = {
@@ -323,7 +308,7 @@ class Task(BaseModel):
         inputs_env.update(
             {
                 conform_env_key(key): str(value) if value is not None else self.env.get("default", None)
-                for (key, value) in command.env.items()
+                for (key, value) in env.items()
             }
         )
 
@@ -334,12 +319,12 @@ class Task(BaseModel):
             logger.info(f"  env: {', '.join(f'{k}={v}' for k,v in inputs_env.items())}")
             return 0
         else:
-            env = dict(os.environ)
-            env.update(inputs_env)
+            final_env = dict(os.environ)
+            final_env.update(inputs_env)
             process = subprocess.Popen(
                 self.run,
                 cwd=self.path,
-                env=env,
+                env=final_env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
