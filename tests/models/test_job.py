@@ -708,6 +708,32 @@ def test_resolve_incomplete_variable_path_raises():
     )
 
 
+def test_resolve_too_many_variable_paths_raises():
+    manifest = dedent(
+        """
+        name: Single composed job manifest
+        data: /data
+        commands:
+          - name: downloader1
+            task: download
+            env:
+              BASE_URL: http://example.com/data
+              OUTPUT: ${job.data}/foo
+          - name: downloader2
+            task: download
+            env:
+              BASE_URL: http://example.com/data
+              OUTPUT: ${previous.env.OUTPUT.something} # too long!
+        """
+    )
+    with pytest.raises(ValueError) as exc_info:
+        Job.from_yaml(manifest)
+    assert (
+        "Invalid placeholder in ${previous.env.OUTPUT.something}. Could not drill in beyond `output` as it does not refer to an object or a list."
+        in str(exc_info.value)
+    )
+
+
 def test_resolve_tmp_dir(tmpdir):
     data_path = str(tmpdir.mkdir("data"))
     manifest = dedent(
@@ -762,13 +788,30 @@ def test_resolve_tmp_file(tmpdir):
     assert all(
         str(command.env["OUTPUT"]).startswith(data_path + "/tmp/") for command in job.commands
     ), "All commands should output to a tmp directory"
-    assert all(
-        os.path.isfile(str(command.env["OUTPUT"])) for command in job.commands
-    ), "Each output should be a directory"
+    assert all(os.path.isfile(str(command.env["OUTPUT"])) for command in job.commands), "Each output should be a file"
     assert job.commands[0].env["OUTPUT"] != job.commands[1].env["OUTPUT"], "Every tmp value should be a different value"
-    assert (
-        job.commands[1].env["FOO"] == job.commands[0].env["OUTPUT"]
-    ), "References to tmp file should be the same value"
+    assert job.commands[1].env["FOO"] == job.commands[0].env["OUTPUT"], "References to tmp dir should be the same value"
+
+
+def test_resolve_tmp_unknown(tmpdir):
+    data_path = str(tmpdir.mkdir("data"))
+    manifest = dedent(
+        f"""
+        name: Single composed job manifest
+        data: {data_path}
+        commands:
+          - name: downloader
+            task: download
+            env:
+              BASE_URL: http://example.com/data
+              OUTPUT: ${{tmp.unknown}}
+        """
+    )
+    with pytest.raises(ValueError) as exc_info:
+        Job.from_yaml(manifest)
+    assert "Invalid use of ${tmp} placeholder in `${tmp.unknown}`. Expected `tmp.dir` or `tmp.file`" in str(
+        exc_info.value
+    )
 
 
 def test_resolve_variable_previous_unknown_variable_raises():

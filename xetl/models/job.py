@@ -205,9 +205,9 @@ def resolve_placeholders(job: Job):
         if len(keys) <= 1:
             return value
         if isinstance(value, BaseModel | dict):
-            return get_key_value(value, keys[1:], match)  # TODO: test this
+            return get_key_value(value, keys[1:], match)
         if isinstance(value, list):
-            return get_key_value(value[int(keys[1])], keys[2:], match)  # TODO: test this
+            return get_key_value(value[int(keys[1])], keys[2:], match)
 
         # TODO: test this
         raise ValueError(
@@ -230,7 +230,6 @@ def resolve_placeholders(job: Job):
                     case ["file"]:
                         return temp_file(tmpdir)
                     case _:
-                        # TODO: test this
                         raise ValueError(
                             f"Invalid use of ${{tmp}} placeholder in `{match}`. Expected `tmp.dir` or `tmp.file`"
                         )

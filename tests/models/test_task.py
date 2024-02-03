@@ -618,6 +618,23 @@ class TestExecuteTask:
             simple_task_manifest_path
         ), "The cwd should have been set to the directory where the task manifest is stored"
 
+    def test_execute_task_kills_process_on_unexpected_error(self, simple_task_manifest_path, mock_logger, mock_popen):
+        task = Task.from_file(simple_task_manifest_path)
+        env: dict[str, EnvVariableType] = {
+            "FOO": "bar",
+            "OPTION_WITH_HYPHENS": "baz",
+            "OUTPUT": "/tmp/data",
+        }
+
+        mock_popen.return_value.stdout.readline.side_effect = Exception("Something went wrong")
+        mock_popen.return_value.poll.return_value = None
+
+        with pytest.raises(Exception) as exc:
+            task.execute(env, dryrun=False)
+
+        assert str(exc.value) == "Something went wrong"
+        mock_popen.return_value.kill.assert_called_once()
+
     def test_execute_task_dryrun(self, simple_task_manifest_path, mock_logger):
         task = Task.from_file(simple_task_manifest_path)
         env: dict[str, EnvVariableType] = {
