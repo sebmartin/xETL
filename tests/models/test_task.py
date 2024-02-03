@@ -144,10 +144,27 @@ class TestDiscoverTasks:
         tasks = discover_tasks(repo_dir)
 
         assert (
-            f"Skipping task due to error: Could not load YAML file at path: {manifest_path}; Failed to parse YAML, expected a dictionary"
+            f"Skipping task at `{repo_dir}/invalid-yaml-task` due to error: Could not load YAML file at path: {manifest_path}; Failed to parse YAML, expected a dictionary"
             in caplog.text
         )
         assert sorted(tasks.keys()) == sorted(["splitter", "download", "parser"])
+
+    def test_discover_tasks_ignore_unknown_errors(self, tasks_fixtures_path, tmpdir, caplog):
+        repo_dir = str(tmpdir.mkdir("tasks"))
+        copy_tree(tasks_fixtures_path, repo_dir)
+        tasks = discover_tasks(repo_dir)
+
+        with mock.patch(
+            "xetl.models.task.Task.from_file",
+            mock.Mock(side_effect=[Exception("Unknown exception :(~~")] + list(tasks.values())[1:]),
+        ):
+            tasks = discover_tasks(repo_dir)
+
+        assert (
+            f"Skipping task at `{repo_dir}/tasks/splitter` due to unexpected error: Unknown exception :(~~"
+            in caplog.text
+        )
+        assert sorted(tasks.keys()) == sorted(["download", "parser"])
 
     @pytest.mark.parametrize("required_key", ["name", "run"])
     def test_discover_tasks_ignore_missing_required_manifest_field(
@@ -175,7 +192,7 @@ class TestDiscoverTasks:
         tasks = discover_tasks(repo_dir)
 
         assert (
-            f"Skipping task due to error: Could not load YAML file at path: {repo_dir}/invalid-task/manifest.yml; 1 validation error for Task"
+            f"Skipping task at `{repo_dir}/invalid-task` due to error: Could not load YAML file at path: {repo_dir}/invalid-task/manifest.yml; 1 validation error for Task"
             in caplog.text
         )
         assert sorted(tasks.keys()) == ["download", "parser", "splitter"]
@@ -695,7 +712,6 @@ class TestExecuteTask:
 
     @pytest.mark.parametrize("value", [1, 1.23, True, "string"])
     def test_execute_task_defaults_to_any_type(self, value, caplog):
-        caplog.set_level("INFO")
         task = Task.from_yaml(
             task_with_env(
                 """
@@ -709,11 +725,10 @@ class TestExecuteTask:
             "INPUT": value,
         }
         task.execute(env, dryrun=True)
-        # TODO: make the keys case insensitive
         assert f"env: INPUT={str(value)}" in "\n".join(caplog.messages)
 
     @pytest.mark.parametrize("key", ["some-input", "SOME_INPUT", "Some-Input"])
-    def test_execute_normalizes_env_keys(self, key):
+    def test_execute_normalizes_env_keys(self, key, caplog):
         task = Task.from_yaml(
             task_with_env(
                 """
@@ -727,9 +742,9 @@ class TestExecuteTask:
             key: "value",
         }
         task.execute(env, dryrun=True)
+        assert "env: SOME_INPUT=value" in "\n".join(caplog.messages)
 
     def test_execute_task_unknown_env_variable(self, caplog):
-        caplog.set_level("INFO")
         task = Task.from_yaml(
             task_with_env(
                 """
@@ -797,7 +812,6 @@ class TestEndToEnd:
         task = Task.from_file(manifest)
 
         caplog.clear()
-        caplog.set_level("INFO")
         res = task.execute({}, dryrun=False)
         assert caplog.messages == ["world"], "Should have printed the second word of the string"
         assert res == 0
@@ -825,7 +839,6 @@ class TestEndToEnd:
         task = Task.from_file(manifest)
 
         caplog.clear()
-        caplog.set_level("INFO")
         res = task.execute(env={"NAME": "Steve"}, dryrun=False)
         assert caplog.messages == ["Steve"], "Should have printed the name from the env variable"
         assert res == 0

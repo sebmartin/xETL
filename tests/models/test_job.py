@@ -294,13 +294,18 @@ def test_command_invalid_name_raises(command_name):
         ("${Job_var}", "job-var-value"),
         ("${Job-var}", "job-var-value"),
         ("${JOB-VAR}", "job-var-value"),
-        ("${previous.VAR1}", "first-command-var1-value"),
-        ("${previous.Var1}", "first-command-var1-value"),
-        ("${previous.JOB_VAR}", "job-var-value"),
-        ("${first-command.VAR1}", "first-command-var1-value"),
-        ("${first_command.VAR1}", "first-command-var1-value"),
-        ("${first-command.JOB_VAR}", "job-var-value"),
+        ("${previous.env.VAR1}", "first-command-var1-value"),
+        ("${previous.env.Var1}", "first-command-var1-value"),
+        ("${previous.env.JOB_VAR}", "job-var-value"),
+        ("${first-command.env.VAR1}", "first-command-var1-value"),
+        ("${first_command.env.VAR1}", "first-command-var1-value"),
+        ("${first-command.env.JOB_VAR}", "job-var-value"),
         ("~/relative/path/", "/User/username/relative/path/"),
+        ("${job.path}", "/path/to/job"),
+        ("${JOB.Env.VAR1}", "job-var1-value"),
+        ("${job.commands.0.env.VAR1}", "first-command-var1-value"),
+        ("${self.name}", "second-command"),
+        ("${}", "${}"),
     ],
 )
 @mock.patch("xetl.models.job.os.path.expanduser", side_effect=fake_expanduser)
@@ -309,6 +314,7 @@ def test_resolve_placeholders(_, placeholder, resolved):
         f"""
         name: Single composed job manifest
         data: /data
+        path: /path/to/job
         env:
           VAR1: job-var1-value
           JOB_VAR: job-var-value
@@ -381,10 +387,10 @@ def test_resolve_placeholders_non_string_types(placeholder, resolved):
         # more than the `value` so that the logic could get confused with the adjacent literal `$`
         ("${VAR}/$$${JOB_VAR}", "value/$job-var-value"),
         ("${VAR}//$${JOB_VAR}", "value//${JOB_VAR}"),
-        ("'[$DATA] *${VAR}* $$${JOB_VAR}$'", "[/data] *value* $job-var-value$"),
-        ("'[$data] *${VAR}* $$${JOB_VAR}$'", "[/data] *value* $job-var-value$"),
-        ("'[$JOB_PATH] *${VAR}* $$${JOB_VAR}$'", "[/path/to/job] *value* $job-var-value$"),
-        ("'[$job_path] *${VAR}* $$${JOB_VAR}$'", "[/path/to/job] *value* $job-var-value$"),
+        ("'[${job.DATA}] *${VAR}* $$${JOB_VAR}$'", "[/data] *value* $job-var-value$"),
+        ("'[${job.data}] *${VAR}* $$${JOB_VAR}$'", "[/data] *value* $job-var-value$"),
+        ("'[${JOB.PATH}] *${VAR}* $$${JOB_VAR}$'", "[/path/to/job] *value* $job-var-value$"),
+        ("'[${job.path}] *${VAR}* $$${JOB_VAR}$'", "[/path/to/job] *value* $job-var-value$"),
     ],
 )
 def test_resolve_placeholders_complex_matches(placeholder, resolved, tmp_path):
@@ -444,7 +450,7 @@ def test_resolve_placeholders_recursive_matches():
           - name: first-command
             task: task1
             env:
-              VAR1: $DATA
+              VAR1: ${job.data}
               VAR2: "${VAR1}" # would-be-resolved variable
               VAR3: "${VAR3}" # self-referencing
               VAR4: "${VAR5}" # yet-to-be-resolved variable
@@ -458,7 +464,7 @@ def test_resolve_placeholders_recursive_matches():
         "JOB_VAR": "job-var-value",
         "HOST_VAR": "host-var-value",
         "VAR1": "/resolved-data-path",
-        "VAR2": "$DATA",  # pre-resolution value
+        "VAR2": "${job.data}",  # pre-resolution value
         "VAR3": "${VAR3}",  # pre-resolution value
         "VAR4": "${JOB_VAR}",  # pre-resolution value
         "VAR5": "job-var-value",
@@ -476,7 +482,7 @@ def test_resolve_rejects_relative_data_dir_when_loaded_from_string():
             task: download
             env:
               BASE_URL: http://example.com/data
-              OUTPUT: $DATA/downloader/output
+              OUTPUT: ${job.data}/downloader/output
         """
     )
     with pytest.raises(ValueError) as exc:
@@ -497,7 +503,7 @@ def test_from_file_expands_relative_data_dir_to_file(tmp_path):
             task: download
             env:
               BASE_URL: http://example.com/data
-              OUTPUT: $DATA/downloader/output
+              OUTPUT: ${job.data}/downloader/output
         """
     )
     job_dir = tmp_path / "job"
@@ -521,7 +527,7 @@ def test_resolve_doesnt_expand_absolute_data_dir():
             task: download
             env:
               BASE_URL: http://example.com/data
-              OUTPUT: $DATA/downloader/output
+              OUTPUT: ${job.data}/downloader/output
         """
     )
     job = Job.from_yaml(manifest)
@@ -549,9 +555,14 @@ def test_resolve_unknown_env_variable_no_vars_raises():
         == dedent(
             """
             1 validation error for Job
-              Value error, Invalid name `unknown` in `${unknown.something}`. The first must be one of:
-             - variable in the current command's env: No env variables defined
+              Value error, Invalid name `unknown` in `${unknown.something}`. The first name must be one of:
+             - variable name in the current command's env: No env variables defined
              - name of a previous command: No previous commands defined
+             - `self` to reference the current command (e.g. ${self.name})
+             - `job` to reference the Job (e.g. ${job.data})
+             - `previous` to reference the previous command (e.g. ${previous.OUTPUT})
+             - `tmp.dir` to create a temporary directory
+             - `tmp.file` to create a temporary file
             """
         ).strip()
     ), str(exc_info.value)
@@ -581,15 +592,20 @@ def test_resolve_unknown_env_variable_no_previous_raises():
         == dedent(
             """
             1 validation error for Job
-              Value error, Invalid name `unknown` in `$unknown`. The first must be one of:
-             - variable in the current command's env: JOB_VAR, VAR1, VAR2
+              Value error, Invalid name `unknown` in `$unknown`. The first name must be one of:
+             - variable name in the current command's env: JOB_VAR, VAR1, VAR2
              - name of a previous command: No previous commands defined
+             - `self` to reference the current command (e.g. ${self.name})
+             - `job` to reference the Job (e.g. ${job.data})
+             - `previous` to reference the previous command (e.g. ${previous.OUTPUT})
+             - `tmp.dir` to create a temporary directory
+             - `tmp.file` to create a temporary file
             """
         ).strip()
     ), str(exc_info.value)
 
 
-def test_resolve_unknown_env_variable_no_current_raises():
+def test_resolve_unknown_env_variable_no_current_env_raises():
     manifest = dedent(
         """
         name: Single composed job manifest
@@ -612,15 +628,20 @@ def test_resolve_unknown_env_variable_no_current_raises():
         == dedent(
             """
             1 validation error for Job
-              Value error, Invalid name `unknown` in `$unknown`. The first must be one of:
-             - variable in the current command's env: No env variables defined
-             - name of a previous command: first, previous
+              Value error, Invalid name `unknown` in `$unknown`. The first name must be one of:
+             - variable name in the current command's env: No env variables defined
+             - name of a previous command: first
+             - `self` to reference the current command (e.g. ${self.name})
+             - `job` to reference the Job (e.g. ${job.data})
+             - `previous` to reference the previous command (e.g. ${previous.OUTPUT})
+             - `tmp.dir` to create a temporary directory
+             - `tmp.file` to create a temporary file
             """
         ).strip()
     ), str(exc_info.value)
 
 
-def test_resolve_unknown_env_variable_with_previous_raises():
+def test_resolve_unknown_env_variable_with_previous_and_current_env_raises():
     manifest = dedent(
         """
         name: Single composed job manifest
@@ -648,9 +669,14 @@ def test_resolve_unknown_env_variable_with_previous_raises():
         == dedent(
             """
             1 validation error for Job
-              Value error, Invalid name `unknown` in `$unknown`. The first must be one of:
-             - variable in the current command's env: JOB_VAR, VAR1, VAR2
-             - name of a previous command: first, previous
+              Value error, Invalid name `unknown` in `$unknown`. The first name must be one of:
+             - variable name in the current command's env: JOB_VAR, VAR1, VAR2
+             - name of a previous command: first
+             - `self` to reference the current command (e.g. ${self.name})
+             - `job` to reference the Job (e.g. ${job.data})
+             - `previous` to reference the previous command (e.g. ${previous.OUTPUT})
+             - `tmp.dir` to create a temporary directory
+             - `tmp.file` to create a temporary file
             """
         ).strip()
     ), str(exc_info.value)
@@ -666,7 +692,7 @@ def test_resolve_incomplete_variable_path_raises():
             task: download
             env:
               BASE_URL: http://example.com/data
-              OUTPUT: $DATA/foo
+              OUTPUT: ${job.data}/foo
           - name: downloader2
             task: download
             env:
@@ -697,7 +723,7 @@ def test_resolve_tmp_dir(tmpdir):
           - name: splitter
             task: split
             env:
-              FOO: ${{previous.OUTPUT}}
+              FOO: ${{previous.env.OUTPUT}}
               OUTPUT: ${{tmp.dir}}
         """
     )
@@ -727,7 +753,7 @@ def test_resolve_tmp_file(tmpdir):
           - name: splitter
             task: split
             env:
-              FOO: ${{previous.OUTPUT}}
+              FOO: ${{previous.env.OUTPUT}}
               OUTPUT: ${{tmp.file}}
         """
     )
@@ -769,7 +795,7 @@ def test_resolve_variable_previous_unknown_variable_raises():
     actual_error = str(exc_info.value).split(" [type=value_error")[0]
     assert actual_error.strip() == (
         "1 validation error for Job\n  Value error, Invalid placeholder `unknown` in ${previous.unknown}. "
-        "Valid keys are: `BASE_URL`, `OUTPUT`"
+        "Valid keys are: `description`, `env`, `name`, `skip`, `task`"
     ), str(exc_info.value)
 
 
@@ -782,14 +808,14 @@ def test_resolve_variable_previous_output_first_command_raises():
           - name: splitter
             task: split
             env:
-              FOO: ${previous.output}
+              FOO: ${previous.env.output}
               OUTPUT: /data/output
         """
     )
 
     with pytest.raises(Exception) as exc_info:
         Job.from_yaml(manifest)
-    assert "Cannot use $previous placeholder on the first command" in str(exc_info.value)
+    assert "Cannot use ${previous} placeholder on the first command" in str(exc_info.value)
 
 
 def test_resolve_variable_chained_placeholders():
@@ -801,17 +827,17 @@ def test_resolve_variable_chained_placeholders():
           - name: downloader1
             task: download
             env:
-              BASE_URL: http://example.com$DATA
+              BASE_URL: http://example.com${job.data}
               OUTPUT: /tmp/data/d1
           - name: downloader2
             task: download
             env:
-              BASE_URL: ${downloader1.base_url}
+              BASE_URL: ${downloader1.env.base_url}
               OUTPUT: /tmp/data/d2
           - name: downloader3
             task: download
             env:
-              BASE_URL: ${downloader2.base_url}
+              BASE_URL: ${downloader2.env.base_url}
               OUTPUT: /tmp/data/d3
     """
     )
@@ -831,13 +857,13 @@ def test_resolve_variable_circular_placeholders_raises():
           - name: downloader1
             task: download
             env:
-              BASE_URL: http://example.com$DATA
-              OUTPUT: ${downloader2.output}
+              BASE_URL: http://example.com${job.DATA}
+              OUTPUT: ${downloader2.env.output}
           - name: downloader2
             task: download
             env:
-              BASE_URL: http://example.com$DATA
-              OUTPUT: ${downloader1.output}
+              BASE_URL: http://example.com${job.DATA}
+              OUTPUT: ${downloader1.env.output}
     """
     )
 
@@ -849,9 +875,14 @@ def test_resolve_variable_circular_placeholders_raises():
         == dedent(
             """
             1 validation error for Job
-              Value error, Invalid name `downloader2` in `${downloader2.output}`. The first must be one of:
-             - variable in the current command's env: BASE_URL, OUTPUT
+              Value error, Invalid name `downloader2` in `${downloader2.env.output}`. The first name must be one of:
+             - variable name in the current command's env: BASE_URL, OUTPUT
              - name of a previous command: No previous commands defined
+             - `self` to reference the current command (e.g. ${self.name})
+             - `job` to reference the Job (e.g. ${job.data})
+             - `previous` to reference the previous command (e.g. ${previous.OUTPUT})
+             - `tmp.dir` to create a temporary directory
+             - `tmp.file` to create a temporary file
             """
         ).strip()
     )

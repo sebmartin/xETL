@@ -45,13 +45,13 @@ def job_manifest(tasks_repo_path, print_env_task, filter_env_task, output_dir, t
               INPUT1: 100
               INPUT2: false
               TEMP_FILE: ${{tmp.file}}
-              OUTPUT: $DATA/env.txt
+              OUTPUT: ${{job.data}}/env.txt
           - name: filter-env
             task: filter
             env:
-              FILE: ${{previous.OUTPUT}}
+              FILE: ${{previous.env.OUTPUT}}
               PATTERN: -i input
-              OUTPUT: $DATA/result.txt
+              OUTPUT: ${{job.data}}/result.txt
         """
     )
     job_dir = tmp_path / "test-job"

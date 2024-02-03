@@ -6,7 +6,6 @@ from typing import Any
 from pydantic import (
     BaseModel,
     ConfigDict,
-    ValidationError,
     field_validator,
     model_validator,
 )
@@ -68,7 +67,7 @@ class Task(BaseModel):
     task is executed. It's also used to resolve relative paths.
     """
 
-    run: list[str]  # TODO: implement this
+    run: list[str]
     """
     The command to run when the task executes. It's a list of strings which will be passed as an argument
     to `Popen` when executed. However, in YAML it can actually
@@ -376,11 +375,9 @@ def discover_tasks(tasks_repo_path: str | list[str]) -> dict[str, Task]:
         try:
             task = Task.from_file(f"{path}/manifest.yml")
             tasks[task.name] = task
-        except ValidationError as e:
-            logger.warning(f"Skipping task due to validation error: {e}")  # TODO: test this
         except (ManifestLoadError, InvalidManifestError) as e:
-            logger.warning(f"Skipping task due to error: {str(e)}")  # TODO: test this
+            logger.warning(f"Skipping task at `{path}` due to error: {str(e)}")
         except Exception as e:
-            logger.warning(f"Skipping task due to unexpected error: {e}")  # TODO: test this
+            logger.error(f"Skipping task at `{path}` due to unexpected error: {e}")  # TODO: test this
 
     return tasks

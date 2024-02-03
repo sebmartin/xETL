@@ -1,6 +1,5 @@
+from typing import Any
 from pydantic import BaseModel
-
-from xetl.models import EnvVariableType
 
 
 def conform_key(key: str):
@@ -28,7 +27,7 @@ def conform_env_key(key: str):
     return key.upper().replace("-", "_")
 
 
-def fuzzy_lookup(obj: BaseModel | dict, key: str, raise_on_missing: bool = False) -> EnvVariableType:
+def fuzzy_lookup(obj: BaseModel | dict, key: str, raise_on_missing: bool = False) -> Any:
     """
     Look up a key in a model or dict using a case insensitive match that also allows underscores to be used
     in place of dashes (and vice-versa)

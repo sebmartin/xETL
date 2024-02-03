@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from textwrap import dedent
@@ -5,6 +6,13 @@ from textwrap import dedent
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+
+@pytest.fixture
+def caplog(caplog):
+    # Default log level capture to INFO
+    caplog.set_level(logging.INFO)
+    return caplog
 
 
 @pytest.fixture

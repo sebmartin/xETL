@@ -4,5 +4,9 @@
     "python.testing.pytestArgs": [
         "-vv",
         "--durations=10"
-    ]
+    ],
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+        "source.fixAll": "explicit"
+    }
 }

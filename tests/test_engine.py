@@ -7,8 +7,7 @@ import mock
 import pytest
 
 from xetl import engine
-from xetl.models.command import Command
-from xetl.models.task import Task, TaskFailure, UnknownTaskError
+from xetl.models.task import TaskFailure, UnknownTaskError
 
 
 def job_file(job_yaml: str, tmpdir):
@@ -155,8 +154,8 @@ def test_execute_job_skipped_commands_still_resolve(task_execute, tasks_fixtures
           - name: references-skipped
             task: splitter
             env:
-              FILES: $DATA/files
-              SOURCE: ${{previous.OUTPUT}}
+              FILES: ${{job.data}}/files
+              SOURCE: ${{previous.env.OUTPUT}}
               OUTPUT: /tmp/data1/splits
         """
     )

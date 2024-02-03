@@ -35,15 +35,15 @@ class Job(BaseModel):
     """
     The path to the directory containing the job manifest. This is used to resolve relative paths.
 
-    This value can be referenced in commands using the `$JOB_PATH` placeholder.
+    This value can be referenced in commands using the `${job.path}` placeholder.
 
     e.g.
     ```
         commands:
           - task: my-task
             env:
-              INPUT: $JOB_PATH/files/input.csv
-              OUTPUT: $JOB_PATH/files/output.csv
+              INPUT: ${job.path}/files/input.csv
+              OUTPUT: ${job.path}/files/output.csv
     ```
     """
 
@@ -51,15 +51,15 @@ class Job(BaseModel):
     """
     The root directory where the job will store its data. If the directory does not exist, it will be created.
 
-    This value can be referenced in commands using the `$DATA` placeholder.
+    This value can be referenced in commands using the `${job.data}` placeholder.
 
     e.g.
     ```
         commands:
           - task: my-task
             env:
-              INPUT: $DATA/input.csv
-              OUTPUT: $DATA/output.csv
+              INPUT: ${job.data}/input.csv
+              OUTPUT: ${job.data}/output.csv
     ```
     """
 
@@ -114,6 +114,7 @@ class Job(BaseModel):
 
     @model_validator(mode="after")
     def resolve_placeholders(self) -> "Job":
+        expand_data_path(self)
         inherit_env(self)
         propagate_env(self)
         resolve_placeholders(self)
@@ -130,7 +131,19 @@ class Job(BaseModel):
 # Validation
 
 
+def expand_data_path(job: Job):
+    if job.data is not None and not job.data.startswith(os.path.sep):
+        if job.path is not None:
+            # Expand data path relative to the manifest file
+            job.data = os.path.abspath(os.path.join(job.path, job.data))
+        else:
+            raise ValueError(
+                f"Relative paths cannot be used for `data` when the job manifest is loaded from a string: {job.data}"
+            )
+
+
 def inherit_env(job: Job):
+    """Inherits environment variables from the host environment."""
     base_env = {}
     host_env = job.host_env or []
     if "*" in host_env:
@@ -151,6 +164,7 @@ def inherit_env(job: Job):
 
 
 def propagate_env(job: Job):
+    """Propagates the job's env values to each command's env."""
     if not job.env:
         return
     for command in job.commands:
@@ -170,7 +184,7 @@ def resolve_placeholders(job: Job):
         os.close(fd)
         return path
 
-    def get_key_value(obj: BaseModel | dict, keys: list[str], match: str) -> EnvVariableType:
+    def get_key_value(obj: BaseModel | dict, keys: list[str], match: str) -> Any:
         incomplete_key_error = ValueError(
             f"Incomplete key path, variable must reference a leaf value: `{match}`"
             " -- did you forget to wrap the variable names in curly braces?"
@@ -180,13 +194,6 @@ def resolve_placeholders(job: Job):
 
         try:
             value = fuzzy_lookup(obj, keys[0], raise_on_missing=True)
-            if isinstance(value, BaseModel | dict) and len(keys) > 1:
-                # TODO: Can variable values be objects? -- we might not need this with the simplified implementation
-                return get_key_value(value, keys[1:], match)  # TODO: test this
-            if len(keys) <= 1:
-                return value
-            raise incomplete_key_error  # TODO: test this
-
         except EnvKeyLookupErrors:
             valid_keys = ", ".join(
                 sorted(
@@ -195,49 +202,69 @@ def resolve_placeholders(job: Job):
             )
             raise ValueError(f"Invalid placeholder `{keys[0]}` in {match}. Valid keys are: {valid_keys}")
 
+        if len(keys) <= 1:
+            return value
+        if isinstance(value, BaseModel | dict):
+            return get_key_value(value, keys[1:], match)  # TODO: test this
+        if isinstance(value, list):
+            return get_key_value(value[int(keys[1])], keys[2:], match)  # TODO: test this
+
+        # TODO: test this
+        raise ValueError(
+            f"Invalid placeholder in {match}. Could not drill in beyond `{keys[0]}` as it does not refer to an object or a list."
+        )
+
     def variable_value(
         names: Iterable[str], current_command: Command, named_commands: dict[str, Command], match: str
     ) -> EnvVariableType:
         # Make case insensitive
         names = [n.lower() for n in names]
 
-        # Check for the `data` variable
-        if names == ["data"]:
-            return job.data
-
-        # Check for the `job_path` variable
-        if names == ["job_path"]:
-            return job.path
-
-        # Check for $tmp variables
+        # Check for reserved names
         tmpdir = os.path.join(job.data, "tmp")
-        if tuple(names) == ("tmp", "dir"):
-            return temp_directory(tmpdir)
-        elif tuple(names) == ("tmp", "file"):
-            return temp_file(tmpdir)
+        match list(names):
+            case ["tmp", *rest]:
+                match rest:
+                    case ["dir"]:
+                        return temp_directory(tmpdir)
+                    case ["file"]:
+                        return temp_file(tmpdir)
+                    case _:
+                        # TODO: test this
+                        raise ValueError(
+                            f"Invalid use of ${{tmp}} placeholder in `{match}`. Expected `tmp.dir` or `tmp.file`"
+                        )
+            case ["job", *rest]:
+                return get_key_value(job, rest, match)
+            case ["self", *rest]:
+                return get_key_value(current_command, rest, match)
+            case ["previous", *rest]:
+                if "previous" not in named_commands:
+                    raise ValueError("Cannot use ${previous} placeholder on the first command")
+            case _:
+                if len(names) == 1:
+                    # Check current command's env
+                    try:
+                        return get_key_value(current_command.env, names, match)
+                    except EnvKeyLookupErrors:
+                        pass
 
-        # Check current command's env
-        try:
-            return get_key_value(current_command.env, names, match)
-        except EnvKeyLookupErrors:
-            pass
-
-        # Check for `previous`
-        if names[0] == "previous" and "previous" not in named_commands:
-            raise ValueError("Cannot use $previous placeholder on the first command")
-
-        # Resolve from previous command's env
-        if command := fuzzy_lookup(named_commands, names[0]):
-            if isinstance(command, Command):
-                return get_key_value(command.env, names[1:], match)
+        # Resolve named commands or `previous`
+        if placeholder := fuzzy_lookup(named_commands, names[0]):
+            return get_key_value(placeholder, names[1:], match)
 
         # Could not resolve
         env_keys = ", ".join(sorted(current_command.env.keys()))
-        command_keys = ", ".join(sorted(named_commands.keys()))
+        command_keys = ", ".join(sorted({name for name, p in named_commands.items()} - {"previous"}))
         raise ValueError(
-            f"Invalid name `{names[0]}` in `{match}`. The first must be one of:\n"
-            f" - variable in the current command's env: {env_keys or 'No env variables defined'}\n"
-            f" - name of a previous command: {command_keys or 'No previous commands defined'}"
+            f"Invalid name `{names[0]}` in `{match}`. The first name must be one of:\n"
+            f" - variable name in the current command's env: {env_keys or 'No env variables defined'}\n"
+            f" - name of a previous command: {command_keys or 'No previous commands defined'}\n"
+            " - `self` to reference the current command (e.g. ${self.name})\n"
+            " - `job` to reference the Job (e.g. ${job.data})\n"
+            " - `previous` to reference the previous command (e.g. ${previous.OUTPUT})\n"
+            " - `tmp.dir` to create a temporary directory\n"
+            " - `tmp.file` to create a temporary file"
         )
 
     def resolve(string: str, current_command: Command, named_commands: dict[str, Command]) -> EnvVariableType:
@@ -301,15 +328,7 @@ def resolve_placeholders(job: Job):
                 setattr(model, key, value)
 
     # Resolve all job placeholders
-    if job.data is not None and not job.data.startswith(os.path.sep):
-        if job.path is not None:
-            # Expand data path relative to the manifest file
-            job.data = os.path.abspath(os.path.join(job.path, job.data))
-        else:
-            raise ValueError(
-                f"Relative paths cannot be used for `data` when the job manifest is loaded from a string: {job.data}"
-            )
-    named_commands = OrderedDict({})
+    named_commands: dict[str, Command] = OrderedDict()
     for command in job.commands:
         traverse_object(command, command, named_commands)
         if command.name:
