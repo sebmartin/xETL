@@ -313,7 +313,7 @@ class Task(BaseModel):
 
         if dryrun:
             logger.info("DRYRUN: Would execute with:")
-            logger.info(f"  run: {" ".join(self.run)}")
+            logger.info(f"  run: {' '.join(self.run)}")
             logger.info(f"  cwd: {self.path}")
             logger.info(f"  env: {', '.join(f'{k}={v}' for k,v in inputs_env.items())}")
             return 0
