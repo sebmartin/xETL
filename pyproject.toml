@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "xETL"
-version = "0.9.1"
+version = "1.0a1"
 description = "An orchestation library for sequencing executions but don't call it an ETL."
 authors = ["Sebastien Martin"]
 license = "Apache License 2.0"

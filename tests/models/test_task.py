@@ -161,10 +161,10 @@ class TestDiscoverTasks:
             tasks = discover_tasks(repo_dir)
 
         assert (
-            f"Skipping task at `{repo_dir}/tasks/splitter` due to unexpected error: Unknown exception :(~~"
+            f"Skipping task at `{repo_dir}/tasks/download` due to unexpected error: Unknown exception :(~~"
             in caplog.text
         )
-        assert sorted(tasks.keys()) == sorted(["download", "parser"])
+        assert sorted(tasks.keys()) == ["parser", "splitter"]
 
     @pytest.mark.parametrize("required_key", ["name", "run"])
     def test_discover_tasks_ignore_missing_required_manifest_field(

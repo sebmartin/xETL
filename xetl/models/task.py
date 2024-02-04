@@ -364,12 +364,15 @@ def discover_tasks(tasks_repo_path: str | list[str]) -> dict[str, Task]:
         return tasks
 
     # handle single path
-    tasks_paths = [path[0] for path in os.walk(tasks_repo_path) if "manifest.yml" in path[2]]
-    for path in tasks_paths:
-        # ignore manifests in tests directories
-        if path.endswith("/tests"):
-            continue
-        if "/tests/" in path and path.split("/tests/")[0] in tasks_paths:
+    for path, dirs, files in os.walk(tasks_repo_path):
+        # ignore test directories
+        dirs[:] = [d for d in dirs if d.lower() != "tests"]
+
+        # walk subdirectories in alphabetical order
+        dirs.sort()
+
+        # ignore directories that don't contain a manifest file
+        if not ({"manifest.yml", "manifest.yaml"} & {f.lower() for f in files}):
             continue
 
         try:

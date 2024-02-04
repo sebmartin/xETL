@@ -205,11 +205,11 @@ def test_execute_bash_job(job_manifest, output_dir, tmp_path):
         ╭──╴Executing job: test-job ╶╴╴╶ ╶
         │ Parsed manifest for job: test-job
         │ Discovering tasks at paths: ['{job_path}/tasks']
-        │ Loading task at: {job_path}/tasks/print-env/manifest.yml
         │ Loading task at: {job_path}/tasks/filter/manifest.yml
+        │ Loading task at: {job_path}/tasks/print-env/manifest.yml
         │ Available tasks detected:
-        │  - print-env
         │  - filter
+        │  - print-env
         ┏━━╸Executing command: print-env (1 of 2) ━╴╴╶ ╶
         ┃   name: print-env
         ┃   description: null
@@ -299,11 +299,11 @@ def test_execute_bash_job_dryrun(job_manifest, tmp_path):
         │       PATTERN: -i input
         │       OUTPUT: {job_path}/output/result.txt
         │ Discovering tasks at paths: ['{job_path}/tasks']
-        │ Loading task at: {job_path}/tasks/print-env/manifest.yml
         │ Loading task at: {job_path}/tasks/filter/manifest.yml
+        │ Loading task at: {job_path}/tasks/print-env/manifest.yml
         │ Available tasks detected:
-        │  - print-env
         │  - filter
+        │  - print-env
         ┏━━╸Executing command: print-env (1 of 2) ━╴╴╶ ╶
         ┃   name: print-env
         ┃   description: null
@@ -475,11 +475,11 @@ def test_nested_job(minimal_job_manifest, tasks_repo_path, tmpdir):
         ╭──╴Executing job: outer-job ╶╴╴╶ ╶
         │ Parsed manifest for job: outer-job
         │ Discovering tasks at paths: ['{data_dir}/tasks']
-        │ Loading task at: {data_dir}/tasks/inner-job/manifest.yml
         │ Loading task at: {data_dir}/tasks/echo/manifest.yml
+        │ Loading task at: {data_dir}/tasks/inner-job/manifest.yml
         │ Available tasks detected:
-        │  - inner-job
         │  - echo
+        │  - inner-job
         ┏━━╸Executing command: inner-job (1 of 1) ━╴╴╶ ╶
         ┃   name: inner-job
         ┃   description: null
@@ -493,11 +493,11 @@ def test_nested_job(minimal_job_manifest, tasks_repo_path, tmpdir):
         ┃│2023-11-23 21:36:52.983┊ ╭──╴Executing job: minimal-test-job ╶╴╴╶ ╶
         ┃│2023-11-23 21:36:52.983┊ │ Parsed manifest for job: minimal-test-job
         ┃│2023-11-23 21:36:52.983┊ │ Discovering tasks at paths: ['{data_dir}/tasks']
-        ┃│2023-11-23 21:36:52.983┊ │ Loading task at: {data_dir}/tasks/inner-job/manifest.yml
         ┃│2023-11-23 21:36:52.983┊ │ Loading task at: {data_dir}/tasks/echo/manifest.yml
+        ┃│2023-11-23 21:36:52.983┊ │ Loading task at: {data_dir}/tasks/inner-job/manifest.yml
         ┃│2023-11-23 21:36:52.983┊ │ Available tasks detected:
-        ┃│2023-11-23 21:36:52.983┊ │  - inner-job
         ┃│2023-11-23 21:36:52.983┊ │  - echo
+        ┃│2023-11-23 21:36:52.983┊ │  - inner-job
         ┃│2023-11-23 21:36:52.983┊ ┏━━╸Executing command: echo (1 of 1) ━╴╴╶ ╶
         ┃│2023-11-23 21:36:52.983┊ ┃   name: echo
         ┃│2023-11-23 21:36:52.983┊ ┃   description: null
