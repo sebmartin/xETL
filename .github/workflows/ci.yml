@@ -28,10 +28,11 @@ jobs:
 
     - name: Run tests
       run: |
-        python -m poetry run python -m pytest -vv
-        coverage xml -o coverage.xml
+        poetry run pytest --cov=xetl --cov-report=term-missing --cov-report=xml -vv tests
+        poetry run coverage xml -o coverage.xml
 
     - name: Upload coverage report to Codecov
+      if: ${{ github.ref == 'refs/heads/main' && matrix.python-version == '3.12' }}
       uses: codecov/codecov-action@v2
       with:
         file: ./coverage.xml

@@ -381,7 +381,7 @@ def test_execute_with_minimal_logging_no_timestamps(minimal_job_manifest, tmp_pa
         Executing task: echo
         Hello world!
         Return code: 0
-        Done! \o/
+        Done! \\o/
         """
     ).format(data_dir=str(tmp_path), space=" ", error_code=1)
     actual_result = result.stdout.decode("utf-8")
@@ -422,7 +422,7 @@ def test_execute_with_moderate_logging_no_timestamps(minimal_job_manifest, tmpdi
         ═╴Executing task: echo╶═
         Hello world!
         ═╴Return code: 0╶═
-        Done! \o/
+        Done! \\o/
         """
     ).format(data_dir=str(tmpdir), space=" ", error_code=1)
     actual_result = result.stdout.decode("utf-8")
@@ -508,9 +508,9 @@ def test_nested_job(minimal_job_manifest, tasks_repo_path, tmpdir):
         ┃│2023-11-23 21:36:52.983┊ ┃╭──╴Executing task: echo ─╴╴╶ ╶
         ┃│2023-11-23 21:36:52.983┊ ┃│ Hello world!
         ┃│2023-11-23 21:36:52.983┊ ┃╰──╴Return code: 0 ─╴╴╶ ╶
-        ┃│2023-11-23 21:36:52.983┊ │ Done! \o/
+        ┃│2023-11-23 21:36:52.983┊ │ Done! \\o/
         ┃╰──╴Return code: 0 ─╴╴╶ ╶
-        │ Done! \o/
+        │ Done! \\o/
         """
     ).format(data_dir=str(tmpdir), space=" ")
     actual_result = result.stdout.decode("utf-8")
