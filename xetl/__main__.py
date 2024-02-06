@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def argument_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser("Let's Go!")
+    parser = argparse.ArgumentParser("xETL")
     parser.add_argument(
         "manifest",
         help="Path to job manifest YAML file. Relative paths are resolved relative to the current working directory.",

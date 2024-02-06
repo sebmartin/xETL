@@ -1,7 +1,7 @@
 # 🙅‍♂️ETL
 _/zɛtəl/_
 
-[![CI](https://github.com/sebmartin/xetl/actions/workflows/ci.yml/badge.svg)](https://github.com/sebmartin/xETL/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/sebmartin/xETL/graph/badge.svg?token=8AFOOXA3AV)](https://codecov.io/gh/sebmartin/xETL)
+[![CI](https://github.com/sebmartin/xetl/actions/workflows/ci.yml/badge.svg)](https://github.com/sebmartin/xETL/actions/workflows/ci.yml?query=branch%3Amain) [![codecov](https://codecov.io/gh/sebmartin/xETL/graph/badge.svg?token=8AFOOXA3AV)](https://codecov.io/gh/sebmartin/xETL)
 
 ## Overview
 
@@ -14,7 +14,7 @@ Its design is inspired by the following set of principles:
 
 The result is a simple yet powerful library that is easy to learn.
 
-It is also unopiniated. The library itself is written in Python, but a job can be composed of tasks written in almost any language.
+It is also unopiniated. The library itself is written in Python, but a job can be composed of tasks written in virtually any language.
 
 ## Concepts
 
@@ -43,8 +43,99 @@ The `Task` describes how to execute a program as well as its environment variabl
 
 ## Simple Example
 
-We'll look at a simple contrived example to help illustrate how tasks are joined to form a job. Let's say we want our job to do two things:
+Let's builds a simple job to do two things:
 
 1. download an image from a web server
 2. convert that image to grayscale
 
+We'll start by defining a task for each of these activities.
+
+`tasks/download/manifest.yml`
+```yaml
+name: download
+env:
+  IMAGE_URL: URL to the image to download
+  OUTPUT: File path to save the file
+run:
+  interpreter: /bin/bash -c
+  script: |
+    mkdir -p "$(dirname "$OUTPUT")"
+    curl -o "$OUTPUT" "$IMAGE_URL"
+```
+
+`tasks/grayscale/manifest.yml`
+```yaml
+name: grayscale
+env:
+  INPUT: File path to input image
+  OUTPUT: File path to outptu image
+run:
+  interpreter: /bin/bash -c
+  script: |
+    mkdir -p "$(dirname "$OUTPUT")"
+    convert "$INPUT" -colorspace Gray "$OUTPUT"
+```
+
+We can now write a job that will make use of these tasks:
+
+`job.yml`
+```yaml
+name: fetch-grayscale
+description: Download an image and convert it to grayscale
+data: ./data
+tasks: ./tasks
+commands:
+  - task: download
+    env:
+      IMAGE_URL: https://www.python.org/static/img/python-logo@2x.png
+      OUTPUT: ${job.data}/source/download.png
+  - task: grayscale
+    env:
+      INPUT: ${previous.env.OUTPUT}
+      OUTPUT: ${job.data}/final/grayscale.png
+```
+
+That's it! This job can now be executed with:
+
+```shell
+$ python -m xetl example/job.yml
+```
+
+```
+ Loading job manifest at: /Users/user/src/xETL/example/job.yml
+╭──╴Executing job: fetch-grayscale ╶╴╴╶ ╶
+│ Parsed manifest for job: fetch-grayscale
+│ Discovering tasks at paths: ['/Users/user/src/xETL/example/tasks']
+│ Loading task at: /Users/user/src/xETL/example/tasks/download/manifest.yml
+│ Loading task at: /Users/user/src/xETL/example/tasks/grayscale/manifest.yml
+│ Available tasks detected:
+│  - download
+│  - grayscale
+┏━━╸Executing command 1 of 2 ━╴╴╶ ╶
+┃   name: null
+┃   description: null
+┃   task: download
+┃   env:
+┃     IMAGE_URL: https://www.python.org/static/img/python-logo@2x.png
+┃     OUTPUT: /Users/user/src/xETL/example/data/download_source.png
+┃   skip: false
+┃╭──╴Executing task: download ─╴╴╶ ╶
+┃│2024-02-05 22:21:48.633┊ % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+┃│2024-02-05 22:21:48.633┊ Dload  Upload   Total   Spent    Left  Speed
+┃│2024-02-05 22:21:48.633┊
+┃│2024-02-05 22:21:48.743┊ 0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+┃│2024-02-05 22:21:48.744┊ 100 15770  100 15770    0     0   139k      0 --:--:-- --:--:-- --:--:--  140k
+┃╰──╴Return code: 0 ─╴╴╶ ╶
+┃
+┏━━╸Executing command 2 of 2 ━╴╴╶ ╶
+┃   name: null
+┃   description: null
+┃   task: grayscale
+┃   env:
+┃     INPUT: /Users/user/src/xETL/example/data/download_source.png
+┃     OUTPUT: /Users/user/src/xETL/example/data/grayscale.png
+┃   skip: false
+┃╭──╴Executing task: grayscale ─╴╴╶ ╶
+┃╰──╴Return code: 0 ─╴╴╶ ╶
+│ Done! \o/
+```
