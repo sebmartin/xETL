@@ -487,8 +487,31 @@ def test_resolve_rejects_relative_data_dir_when_loaded_from_string():
     )
     with pytest.raises(ValueError) as exc:
         Job.from_yaml(manifest)
+    assert "Relative paths cannot be used when the job manifest is loaded from a string: relative/data/path" in str(
+        exc.value
+    )
+
+
+def test_resolve_rejects_relative_tasks_dir_when_loaded_from_string():
+    manifest = dedent(
+        """
+        name: Single composed job manifest
+        data: /absolute/data/path
+        tasks:
+          - /absolute/path/is/ok
+          - relative/path/is/not/ok
+        commands:
+          - name: downloader
+            task: download
+            env:
+              BASE_URL: http://example.com/data
+              OUTPUT: ${job.data}/downloader/output
+        """
+    )
+    with pytest.raises(ValueError) as exc:
+        Job.from_yaml(manifest)
     assert (
-        "Relative paths cannot be used for `data` when the job manifest is loaded from a string: relative/data/path"
+        "Relative paths cannot be used when the job manifest is loaded from a string: relative/path/is/not/ok"
         in str(exc.value)
     )
 
@@ -515,6 +538,24 @@ def test_from_file_expands_relative_data_dir_to_file(tmp_path):
     assert job.data == f"{job_dir}/relative/data/path"
     assert job.commands[0].env["OUTPUT"] == f"{job.data}/downloader/output"
     assert job.path == str(job_dir)
+
+
+def test_from_file_expands_relative_tasks_dir_to_file(tmp_path):
+    manifest = dedent(
+        """
+        name: Single composed job manifest
+        data: relative/data/path
+        tasks: relative/tasks
+        commands: []
+        """
+    )
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    job_file = job_dir / "job.yml"
+    job_file.write_text(manifest)
+    job = Job.from_file(str(job_file))
+
+    assert job.tasks == [f"{job_dir}/relative/tasks"]
 
 
 def test_resolve_doesnt_expand_absolute_data_dir():

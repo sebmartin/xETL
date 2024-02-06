@@ -115,6 +115,7 @@ class Job(BaseModel):
     @model_validator(mode="after")
     def resolve_placeholders(self) -> "Job":
         expand_data_path(self)
+        expand_task_paths(self)
         inherit_env(self)
         propagate_env(self)
         resolve_placeholders(self)
@@ -132,14 +133,22 @@ class Job(BaseModel):
 
 
 def expand_data_path(job: Job):
-    if job.data is not None and not job.data.startswith(os.path.sep):
-        if job.path is not None:
-            # Expand data path relative to the manifest file
-            job.data = os.path.abspath(os.path.join(job.path, job.data))
-        else:
-            raise ValueError(
-                f"Relative paths cannot be used for `data` when the job manifest is loaded from a string: {job.data}"
-            )
+    job.data = expand_path(job.data, job.path)
+
+
+def expand_task_paths(job: Job):
+    job.tasks = [expand_path(task, job.path) for task in job.tasks]
+
+
+def expand_path(path: str, base_path: str) -> str:
+    if path is None or path.startswith(os.path.sep):
+        return path
+
+    if not base_path:
+        raise ValueError(f"Relative paths cannot be used when the job manifest is loaded from a string: {path}")
+
+    # Expand data path relative to the job's manifest file
+    return os.path.abspath(os.path.join(base_path, path))
 
 
 def inherit_env(job: Job):
