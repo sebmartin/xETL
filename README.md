@@ -183,6 +183,9 @@ using the task's `name` property as its key.
 Each command in the job's `commands` array must specify a `task` property which is the `name` of the task
 that the command executes.
 
+![Dependencies](images/command-task-env.png)
+
+
 ### The Environment
 
 We mentioned above that the job describes a DAG of tasks and yet we didn't define a DAG anywhere in the
@@ -226,3 +229,4 @@ env:
     INPUT: ${previous.env.OUTPUT}
 ```
 
+![Dependencies](images/dependencies.png)
