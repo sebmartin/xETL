@@ -1,7 +1,7 @@
 # 🙅‍♂️ETL
 _/zɛtəl/_
 
-[![CI](https://github.com/sebmartin/xetl/actions/workflows/ci.yml/badge.svg)](https://github.com/sebmartin/xETL/actions/workflows/ci.yml?query=branch%3Amain) [![codecov](https://codecov.io/gh/sebmartin/xETL/graph/badge.svg?token=8AFOOXA3AV)](https://codecov.io/gh/sebmartin/xETL)
+****[![CI](https://github.com/sebmartin/xetl/actions/workflows/ci.yml/badge.svg)](https://github.com/sebmartin/xETL/actions/workflows/ci.yml?query=branch%3Amain) [![codecov](https://codecov.io/gh/sebmartin/xETL/graph/badge.svg?token=8AFOOXA3AV)](https://codecov.io/gh/sebmartin/xETL)
 
 ## Overview
 
@@ -19,8 +19,6 @@ It is also unopiniated. The library itself is written in Python, but a job can b
 ## Concepts
 
 There are only three main concepts to learn in order to build a xETL job.
-
-<!-- > One completes a _job_ by issuing _commands_ for executing _tasks_. -->
 
 ### *Job*
 
@@ -47,6 +45,8 @@ Let's builds a simple job to do two things:
 
 1. download an image from a web server
 2. convert that image to grayscale
+
+### The Tasks
 
 We'll start by defining a task for each of these activities.
 
@@ -76,6 +76,8 @@ run:
     convert "$INPUT" -colorspace Gray "$OUTPUT"
 ```
 
+### The Job
+
 We can now write a job that will make use of these tasks:
 
 `job.yml`
@@ -94,6 +96,8 @@ commands:
       INPUT: ${previous.env.OUTPUT}
       OUTPUT: ${job.data}/final/grayscale.png
 ```
+
+### Running the Job
 
 That's it! This job can now be executed with:
 
@@ -139,3 +143,86 @@ $ python -m xetl example/job.yml
 ┃╰──╴Return code: 0 ─╴╴╶ ╶
 │ Done! \o/
 ```
+
+## How It Works
+
+Admitedly this job is akin to fishing with hand grenades since the same work could be accomplished with a
+trivial two-line bash script. It is a contrived example with extremly simple tasks designed to highlight
+how xETL jobs work so let's go ahead and dissect it...
+
+### Manifests
+
+xETL jobs, commands and tasks are defined using YAML in "manifest" files. There are two types of manifests
+as we saw in the previous example:
+
+1. Task manifest -- describes a task and its parameters
+2. Job manifest -- describes a job's paremeters and its commands
+
+A job manifest's path is specified as an argument when running the job, for example:
+
+```shell
+$ python -m xetl example/job.yml
+```
+
+The job manifest specifies a `tasks` property to provide the base directory where tasks can be found.
+This can be a single path or an array of paths:
+
+```
+tasks: ./tasks
+```
+or
+```
+tasks:
+  - ./tasks
+  - ~/common-tasks
+```
+
+When the job runs, it will traverse these paths looking for `manifest.yml` files and will register each task
+using the task's `name` property as its key.
+
+Each command in the job's `commands` array must specify a `task` property which is the `name` of the task
+that the command executes.
+
+### The Environment
+
+We mentioned above that the job describes a DAG of tasks and yet we didn't define a DAG anywhere in the
+example code. That's because the DAG is defined _implicitly_ by the propagation of **environment variables**.
+
+A task declares its inputs using the `env` dictionary in its manifest. A command invokes a task by providing values
+for each one of the task's declared `env` variables. You can see in the example above how the `env` keys in the command
+match the `env` keys in the associated task's manifest.
+
+A job's DAG is defined when commands depend on other commands by referencing the `env` values
+of a previous command.
+
+For example, in the example above, the first command uses the following values as inputs to the
+`download` task:
+
+```yml
+    env:
+      IMAGE_URL: https://www.python.org/static/img/python-logo@2x.png
+      OUTPUT: ${job.data}/source/download.png
+```
+
+The `IMAGE_URL` is a static string and is not at all interesting. The `OUTPUT` variable however uses the
+*placehold notation* `${job.data}`. This placeholder will be replaced at runtime with the job's `data` property.
+This property is set in the job manifest with `data: ./data` and so the `OUTPUT` variable will be set to:
+
+```
+./data/source/download.png
+```
+
+> [!NOTE]
+> Relative paths in the job manifest are expaned relative to the job manifest's base directory. Therefore if
+> the job manifest is located at `/Users/user/xETL/example/job.yml` and its data path is set to `./data`,
+> then the `${job.data}` placeholder would be replaced with `/Users/user/src/xETL/example/data/`
+
+
+The second command (`grayscale`) however uses the `previous` placeholder in its value for `INPUT` to
+reference the previous command:
+
+```
+env:
+    INPUT: ${previous.env.OUTPUT}
+```
+
