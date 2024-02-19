@@ -5,7 +5,7 @@ import yaml
 
 from xetl.logging import LogContext, log_context
 from xetl.models.command import Command
-from xetl.models.job import Job
+from xetl.models.job import Job, JobDataDirectoryNotFound
 from xetl.models.task import Task, TaskFailure, UnknownTaskError, discover_tasks
 from xetl.models.utils.dicts import conform_key
 
@@ -17,6 +17,12 @@ logger = logging.getLogger(__name__)
 class NoAliasDumper(yaml.SafeDumper):
     def ignore_aliases(self, data):
         return True
+
+
+def _verify_data_dir(data_dir: str):
+    if not os.path.exists(data_dir):
+        logger.fatal(f"The job's `data` directory does not exist: {data_dir}")
+        raise JobDataDirectoryNotFound
 
 
 def execute_job(manifest_path: str, commands: list[str] | str | None = None, dryrun=False):
@@ -64,6 +70,10 @@ def execute_job(manifest_path: str, commands: list[str] | str | None = None, dry
                 filtered_commands.append(command)
             else:
                 logger.warning(f"Skipping command `{command.name}`")
+
+        if not dryrun:
+            _verify_data_dir(job.data)
+
         execute_job_commands(job.name, filtered_commands, available_tasks, dryrun)
 
         logger.info("Done! \\o/")

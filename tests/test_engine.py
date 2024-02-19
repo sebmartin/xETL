@@ -7,6 +7,7 @@ import mock
 import pytest
 
 from xetl import engine
+from xetl.models.job import JobDataDirectoryNotFound
 from xetl.models.task import TaskFailure, UnknownTaskError
 
 
@@ -21,6 +22,15 @@ def job_file(job_yaml: str, tmpdir):
 def mock_subprocess_run():
     with mock.patch("subprocess.run", mock.Mock()) as mock_run:
         yield mock_run
+
+
+@pytest.fixture(autouse=True)
+def mock_verify_data_dir(request):
+    if "real_verify_data_dir" in request.keywords:
+        yield
+        return
+    with mock.patch("xetl.engine._verify_data_dir", mock.Mock()) as mock_verify:
+        yield mock_verify
 
 
 @mock.patch("xetl.models.task.Task.execute", return_value=0, autospec=True)
@@ -61,6 +71,17 @@ def test_execute_job_stops_if_command_fails(
 
     assert task_execute.call_count == 1, "Task.execute() should have only been called once"
     assert excinfo.value.returncode == 127, "The exception should contain the return code of the failed task"
+
+
+@pytest.mark.real_verify_data_dir
+def test_execute_job_fails_if_data_dir_does_not_exist(job_manifest_simple_path):
+    with pytest.raises(JobDataDirectoryNotFound):
+        engine.execute_job(job_manifest_simple_path)
+
+
+@pytest.mark.real_verify_data_dir
+def test_execute_job_doesnt_fail_if_data_dir_does_not_exist_when_dryrun(job_manifest_simple_path):
+    engine.execute_job(job_manifest_simple_path, dryrun=True)
 
 
 @mock.patch("xetl.models.task.Task.execute")

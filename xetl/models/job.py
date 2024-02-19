@@ -15,6 +15,10 @@ from xetl.models.utils.io import parse_yaml, parse_yaml_file
 logger = logging.getLogger(__name__)
 
 
+class JobDataDirectoryNotFound(Exception):
+    pass
+
+
 class Job(BaseModel):
     """
     A job serves as the primary model that outlines the structure of the work to be performed. It is comprised of
