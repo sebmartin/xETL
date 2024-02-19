@@ -107,16 +107,19 @@ def test_conform_env_invalid_values(env_item):
 
 
 @mock.patch.dict("xetl.models.job.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
-def test_host_env_default_dont_inherit():
+def test_host_env_default_inherit_defined():
     manifest = dedent(
         """
         name: Job does not inherit
         data: /data
+        env:
+          VAR1: job-var1-value
         commands: []
         """
     )
     job = Job.from_yaml(manifest)
-    assert job.env == {}, "Job should not inherit host env by default"
+    assert "VAR2" not in job.env, "Job should not inherit VAR2 since its not defined in `env`"
+    assert job.env == {"VAR1": "host-var1-value"}, "Job should not inherit host env by default"
 
 
 @pytest.mark.parametrize("all", ["'*'", "\n - '*'", "\n - V1\n - '*'"])
@@ -153,7 +156,7 @@ def test_host_env_inherit_all_mixed_warns(caplog):
     Job.from_yaml(manifest)
 
     assert (
-        "The `*` value in `host-env` was specified alongside other values. All host environment variables will be inherited."
+        "The `*` value in `job.host_env` was specified alongside other values. All host environment variables will be inherited."
         in caplog.text
     ), "Should have logged a warning about mixing '*' with other values"
 
@@ -171,7 +174,7 @@ def test_host_env_subset():
     )
     job = Job.from_yaml(manifest)
     assert job.env.get("VAR1") == "host-var1-value", "VAR1 should have been loaded from the HOST env"
-    assert job.env.get("VAR2") is None, "VAR2 should NOT have been loaded from the HOST env"
+    assert "VAR2" not in job.env, "VAR2 should NOT have been loaded from the HOST env"
 
 
 @mock.patch.dict("xetl.models.job.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
@@ -182,19 +185,25 @@ def test_host_env_not_used_warns(caplog):
         data: /data
         host-env:
           - NOT_SET
+          - SET_BY_JOB
+        env:
+          SET_BY_JOB: set-by-job
         commands: []
         """
     )
     Job.from_yaml(manifest)
     assert (
+        "SET_BY_JOB" not in caplog.text
+    ), "Should not have logged a warning about SET_BY_JOB since it has a default value defined in `job.env`"
+    assert (
         "xetl.models.job",
         logging.WARNING,
-        "The following host environment variables were not found: NOT_SET",
+        "The following host environment variables did not receive a value: NOT_SET",
     ) in caplog.record_tuples
 
 
 @mock.patch.dict("xetl.models.job.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
-def test_host_env_job_overrides_host_env():
+def test_host_env_overrides_job_env():
     manifest = dedent(
         """
         name: Job does not inherit
@@ -206,8 +215,25 @@ def test_host_env_job_overrides_host_env():
         """
     )
     job = Job.from_yaml(manifest)
-    assert job.env.get("VAR1") == "job-var1-value", "VAR1 should have been overridden by the JOB env value"
+    assert job.env.get("VAR1") == "host-var1-value", "VAR1 should have been overridden by the JOB env value"
     assert job.env.get("VAR2") == "host-var2-value", "VAR2 should have been loaded from the HOST env"
+
+
+@pytest.mark.parametrize("host_env", ("[]", "null"))
+@mock.patch.dict("xetl.models.job.os.environ", {"VAR1": "host-var1-value", "VAR2": "host-var2-value"}, clear=True)
+def test_host_env_not_allowed(host_env):
+    manifest = dedent(
+        f"""
+        name: Job does not inherit
+        data: /data
+        host-env: {host_env}
+        env:
+          VAR1: job-var1-value
+        commands: []
+        """
+    )
+    job = Job.from_yaml(manifest)
+    assert job.env == {"VAR1": "job-var1-value"}, "All host env values should have been ignored"
 
 
 @mock.patch.dict("xetl.models.job.os.environ", {"HOST_VAR": "host-var-value"}, clear=True)
@@ -299,12 +325,14 @@ def test_command_invalid_name_raises(command_name):
         ("${previous.env.JOB_VAR}", "job-var-value"),
         ("${first-command.env.VAR1}", "first-command-var1-value"),
         ("${first_command.env.VAR1}", "first-command-var1-value"),
+        ("${First_Command.env.VAR1}", "first-command-var1-value"),
+        ("${FIRST_COMMAND.ENV.VAR1}", "first-command-var1-value"),
         ("${first-command.env.JOB_VAR}", "job-var-value"),
         ("~/relative/path/", "/User/username/relative/path/"),
-        ("${job.path}", "/path/to/job"),
+        ("~/relative/path${job.basedir}", "/User/username/relative/path/path/to/job"),
+        ("${job.basedir}", "/path/to/job"),
         ("${JOB.Env.VAR1}", "job-var1-value"),
         ("${job.commands.0.env.VAR1}", "first-command-var1-value"),
-        ("${self.name}", "second-command"),
         ("${}", "${}"),
     ],
 )
@@ -314,7 +342,7 @@ def test_resolve_placeholders(_, placeholder, resolved):
         f"""
         name: Single composed job manifest
         data: /data
-        path: /path/to/job
+        basedir: /path/to/job
         env:
           VAR1: job-var1-value
           JOB_VAR: job-var-value
@@ -389,8 +417,8 @@ def test_resolve_placeholders_non_string_types(placeholder, resolved):
         ("${VAR}//$${JOB_VAR}", "value//${JOB_VAR}"),
         ("'[${job.DATA}] *${VAR}* $$${JOB_VAR}$'", "[/data] *value* $job-var-value$"),
         ("'[${job.data}] *${VAR}* $$${JOB_VAR}$'", "[/data] *value* $job-var-value$"),
-        ("'[${JOB.PATH}] *${VAR}* $$${JOB_VAR}$'", "[/path/to/job] *value* $job-var-value$"),
-        ("'[${job.path}] *${VAR}* $$${JOB_VAR}$'", "[/path/to/job] *value* $job-var-value$"),
+        ("'[${JOB.BASEDIR}] *${VAR}* $$${JOB_VAR}$'", "[/path/to/job] *value* $job-var-value$"),
+        ("'[${job.basedir}] *${VAR}* $$${JOB_VAR}$'", "[/path/to/job] *value* $job-var-value$"),
     ],
 )
 def test_resolve_placeholders_complex_matches(placeholder, resolved, tmp_path):
@@ -409,7 +437,7 @@ def test_resolve_placeholders_complex_matches(placeholder, resolved, tmp_path):
         """
     )
     job_dict = parse_yaml(manifest)
-    job_dict["path"] = "/path/to/job"
+    job_dict["basedir"] = "/path/to/job"
     job = Job(**job_dict)
 
     assert job.commands[0].env["PLACEHOLDER"] == resolved
@@ -438,7 +466,7 @@ def test_resolve_placeholders_none_value(null_value):
 
 
 @mock.patch.dict("xetl.models.job.os.environ", {"HOST_VAR": "host-var-value"}, clear=True)
-def test_resolve_placeholders_recursive_matches():
+def test_resolve_placeholders_unresolved_self_env_values():
     manifest = dedent(
         """
         name: Job with complex placeholder matches
@@ -450,12 +478,12 @@ def test_resolve_placeholders_recursive_matches():
           - name: first-command
             task: task1
             env:
-              VAR1: ${job.data}
-              VAR2: "${VAR1}" # would-be-resolved variable
-              VAR3: "${VAR3}" # self-referencing
-              VAR4: "${VAR5}" # yet-to-be-resolved variable
-              VAR5: ${JOB_VAR}
-              VAR6: ${HOST_VAR}
+              VAR6: ${job.data}
+              VAR5: "${VAR6}" # previously resolved variable
+              VAR4: "${VAR4}" # self-referencing, not yet resolved
+              VAR3: "${VAR2}" # later variable, not yet resolved
+              VAR2: ${JOB_VAR}
+              VAR1: ${HOST_VAR}
         """
     )
     job = Job.from_yaml(manifest)
@@ -463,12 +491,12 @@ def test_resolve_placeholders_recursive_matches():
     assert job.commands[0].env == {
         "JOB_VAR": "job-var-value",
         "HOST_VAR": "host-var-value",
-        "VAR1": "/resolved-data-path",
-        "VAR2": "${job.data}",  # pre-resolution value
-        "VAR3": "${VAR3}",  # pre-resolution value
-        "VAR4": "${JOB_VAR}",  # pre-resolution value
-        "VAR5": "job-var-value",
-        "VAR6": "host-var-value",
+        "VAR6": "/resolved-data-path",
+        "VAR5": "/resolved-data-path",
+        "VAR4": "${VAR4}",  # unresolved value
+        "VAR3": "${JOB_VAR}",  # unresolved value
+        "VAR2": "job-var-value",
+        "VAR1": "host-var-value",
     }, "Only variables referencing other envs (job or host) are resolved"
 
 
@@ -486,7 +514,8 @@ def test_resolve_rejects_relative_data_dir_when_loaded_from_string():
         """
     )
     with pytest.raises(ValueError) as exc:
-        Job.from_yaml(manifest)
+        job = Job.from_yaml(manifest)
+        print(f"job.data = {job.data}")
     assert "Relative paths cannot be used when the job manifest is loaded from a string: relative/data/path" in str(
         exc.value
     )
@@ -537,7 +566,7 @@ def test_from_file_expands_relative_data_dir_to_file(tmp_path):
 
     assert job.data == f"{job_dir}/relative/data/path"
     assert job.commands[0].env["OUTPUT"] == f"{job.data}/downloader/output"
-    assert job.path == str(job_dir)
+    assert job.basedir == str(job_dir)
 
 
 def test_from_file_expands_relative_tasks_dir_to_file(tmp_path):
@@ -574,6 +603,54 @@ def test_resolve_doesnt_expand_absolute_data_dir():
     job = Job.from_yaml(manifest)
 
     assert job.data == "/data/path"
+    assert job.commands[0].env["OUTPUT"] == f"{job.data}/downloader/output"
+
+
+@mock.patch.dict("xetl.models.job.os.environ", {}, clear=True)
+def test_resolve_job_env_with_default():
+    manifest = dedent(
+        """
+        name: Single composed job manifest
+        data: "$DATA_PATH/path"  # resolved from env
+        host-env:
+          - DATA_PATH
+        env:
+          DATA_PATH: /data/job-env
+        commands:
+          - name: downloader
+            task: download
+            env:
+              BASE_URL: http://example.com/data
+              OUTPUT: ${job.data}/downloader/output
+        """
+    )
+    job = Job.from_yaml(manifest)
+
+    assert job.data == "/data/job-env/path", "should have resolved from the job's env"
+    assert job.commands[0].env["OUTPUT"] == f"{job.data}/downloader/output"
+
+
+@mock.patch.dict("xetl.models.job.os.environ", {"DATA_PATH": "/data/host-env"}, clear=True)
+def test_resolve_job_env_from_host_env():
+    manifest = dedent(
+        """
+        name: Single composed job manifest
+        data: $DATA_PATH/path
+        host-env:
+          - DATA_PATH
+        env:
+          DATA_PATH: /data/job-env
+        commands:
+          - name: downloader
+            task: download
+            env:
+              BASE_URL: http://example.com/data
+              OUTPUT: ${job.data}/downloader/output
+        """
+    )
+    job = Job.from_yaml(manifest)
+
+    assert job.data == "/data/host-env/path", "host env should have overridden the job's env"
     assert job.commands[0].env["OUTPUT"] == f"{job.data}/downloader/output"
 
 
@@ -900,6 +977,28 @@ def test_resolve_variable_previous_output_first_command_raises():
     with pytest.raises(Exception) as exc_info:
         Job.from_yaml(manifest)
     assert "Cannot use ${previous} placeholder on the first command" in str(exc_info.value)
+
+
+def test_resolve_variable_self_reference_command_raises():
+    manifest = dedent(
+        """
+        name: Single composed job manifest
+        data: /data
+        commands:
+          - name: splitter
+            task: split
+            env:
+              BEFORE: ${job.data}
+              FOO: ${splitter.env.BEFORE} -- ${splitter.env.AFTER}
+              AFTER: ${job.data}
+        """
+    )
+
+    with pytest.raises(Exception) as exc_info:
+        Job.from_yaml(manifest)
+    assert "Invalid name `splitter` in `${splitter.env.BEFORE}`" in str(
+        exc_info.value
+    ), "self-referencing command placeholder is not allowed"
 
 
 def test_resolve_variable_chained_placeholders():

@@ -61,7 +61,7 @@ class Task(BaseModel):
     functional impact on the task.
     """
 
-    path: str
+    basedir: str
     """
     The path to the directory containing the task. This will be used as the working directory when the
     task is executed. It's also used to resolve relative paths.
@@ -207,7 +207,7 @@ class Task(BaseModel):
     @classmethod
     def from_yaml(cls, yaml_content: str, path: str) -> "Task":
         manifest = parse_yaml(yaml_content)
-        manifest["path"] = path
+        manifest["basedir"] = path
         return cls(**manifest)
 
     # -- Validation
@@ -314,7 +314,7 @@ class Task(BaseModel):
         if dryrun:
             logger.info("DRYRUN: Would execute with:")
             logger.info(f"  run: {' '.join(self.run)}")
-            logger.info(f"  cwd: {self.path}")
+            logger.info(f"  cwd: {self.basedir}")
             logger.info(f"  env: {', '.join(f'{k}={v}' for k,v in inputs_env.items())}")
             return 0
         else:
@@ -322,7 +322,7 @@ class Task(BaseModel):
             final_env.update(inputs_env)
             process = subprocess.Popen(
                 self.run,
-                cwd=self.path,
+                cwd=self.basedir,
                 env=final_env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
