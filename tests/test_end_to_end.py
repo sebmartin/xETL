@@ -276,7 +276,7 @@ def test_execute_bash_job_dryrun(job_manifest, tmp_path):
         │ Manifest parsed as:
         │   name: test-job
         │   description: A test job to run end-to-end tests on
-        │   path: {job_path}/test-job
+        │   basedir: {job_path}/test-job
         │   data: {job_path}/output
         │   host_env:
         │   - JOB_VAR

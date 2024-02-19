@@ -327,7 +327,7 @@ def test_command_invalid_name_raises(command_name):
         ("${first_command.env.VAR1}", "first-command-var1-value"),
         ("${first-command.env.JOB_VAR}", "job-var-value"),
         ("~/relative/path/", "/User/username/relative/path/"),
-        ("${job.path}", "/path/to/job"),
+        ("${job.basedir}", "/path/to/job"),
         ("${JOB.Env.VAR1}", "job-var1-value"),
         ("${job.commands.0.env.VAR1}", "first-command-var1-value"),
         ("${self.name}", "second-command"),
@@ -340,7 +340,7 @@ def test_resolve_placeholders(_, placeholder, resolved):
         f"""
         name: Single composed job manifest
         data: /data
-        path: /path/to/job
+        basedir: /path/to/job
         env:
           VAR1: job-var1-value
           JOB_VAR: job-var-value
@@ -415,8 +415,8 @@ def test_resolve_placeholders_non_string_types(placeholder, resolved):
         ("${VAR}//$${JOB_VAR}", "value//${JOB_VAR}"),
         ("'[${job.DATA}] *${VAR}* $$${JOB_VAR}$'", "[/data] *value* $job-var-value$"),
         ("'[${job.data}] *${VAR}* $$${JOB_VAR}$'", "[/data] *value* $job-var-value$"),
-        ("'[${JOB.PATH}] *${VAR}* $$${JOB_VAR}$'", "[/path/to/job] *value* $job-var-value$"),
-        ("'[${job.path}] *${VAR}* $$${JOB_VAR}$'", "[/path/to/job] *value* $job-var-value$"),
+        ("'[${JOB.BASEDIR}] *${VAR}* $$${JOB_VAR}$'", "[/path/to/job] *value* $job-var-value$"),
+        ("'[${job.basedir}] *${VAR}* $$${JOB_VAR}$'", "[/path/to/job] *value* $job-var-value$"),
     ],
 )
 def test_resolve_placeholders_complex_matches(placeholder, resolved, tmp_path):
@@ -435,7 +435,7 @@ def test_resolve_placeholders_complex_matches(placeholder, resolved, tmp_path):
         """
     )
     job_dict = parse_yaml(manifest)
-    job_dict["path"] = "/path/to/job"
+    job_dict["basedir"] = "/path/to/job"
     job = Job(**job_dict)
 
     assert job.commands[0].env["PLACEHOLDER"] == resolved
@@ -564,7 +564,7 @@ def test_from_file_expands_relative_data_dir_to_file(tmp_path):
 
     assert job.data == f"{job_dir}/relative/data/path"
     assert job.commands[0].env["OUTPUT"] == f"{job.data}/downloader/output"
-    assert job.path == str(job_dir)
+    assert job.basedir == str(job_dir)
 
 
 def test_from_file_expands_relative_tasks_dir_to_file(tmp_path):

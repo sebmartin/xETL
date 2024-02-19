@@ -88,7 +88,7 @@ class TestDiscoverTasks:
     def test_discover_tasks(self, tasks_fixtures_path):
         tasks = discover_tasks(tasks_fixtures_path)
 
-        names_and_paths = [(name, task.path) for name, task in tasks.items()]
+        names_and_paths = [(name, task.basedir) for name, task in tasks.items()]
 
         assert sorted(names_and_paths) == sorted(
             [
@@ -126,7 +126,7 @@ class TestDiscoverTasks:
         def strip_tmpdir(path):
             return str(path).replace(str(tmpdir), "")
 
-        discovered_paths = [strip_tmpdir(t.path) for t in tasks.values()]
+        discovered_paths = [strip_tmpdir(t.basedir) for t in tasks.values()]
 
         assert strip_tmpdir(tests_dir) not in discovered_paths, 'the "tests" directory was not skipped'
         assert strip_tmpdir(nested_tests_dir) not in discovered_paths, 'the nested "tests" directory was not skipped'
@@ -215,7 +215,7 @@ class TestDeserialization:
         task = Task.from_file(simple_task_manifest_path)
 
         assert task.name == "simple-task"
-        assert task.path == os.path.dirname(simple_task_manifest_path)
+        assert task.basedir == os.path.dirname(simple_task_manifest_path)
         assert task.env == {
             "FOO": TaskInputDetails(description="something", type=str),
             "OPTION_WITH_HYPHENS": TaskInputDetails(description="something else"),
@@ -230,7 +230,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             env:
               VAR:
                 optional: true
@@ -248,7 +248,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             env:
               VAR1:
                 required: true
@@ -270,7 +270,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             env:
               VAR1:
                 default: booya
@@ -284,7 +284,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             env:
               - FOO
               - BAR
@@ -302,7 +302,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             env:
               FOO: foo description
               BAR: bar description
@@ -322,7 +322,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             env:
               - FOO
               - BAR
@@ -340,7 +340,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             env:
               - 1
               - GOOD
@@ -357,7 +357,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             env:
               FOO:
                 description: foo description
@@ -383,7 +383,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             env:
               FOO:
                 description: foo description
@@ -405,7 +405,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             env:
               FOO:
                 description: foo description
@@ -422,7 +422,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             run: ./run.sh --foo bar
             """
         )
@@ -434,7 +434,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             run:
               script: print("hello world")
             """
@@ -446,7 +446,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             run:
               interpreter: /bin/zsh -c
               script: echo "hello world" | awk '{print $2}'
@@ -459,7 +459,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             run:
               interpreter: /bin/bash -c
               script: |
@@ -475,7 +475,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             run: ./run.sh --foo bar
             script: print("hello world")
             """
@@ -487,7 +487,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             run:
              - ./run.sh
              - --foo
@@ -501,7 +501,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             run:
               foo: bar
             """
@@ -517,7 +517,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             run: ./run.sh
             tests:
               my-test:
@@ -533,7 +533,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             run: ./run.sh
             tests:
               my-test:
@@ -559,7 +559,7 @@ class TestDeserialization:
         manifest = dedent(
             """
             name: simple-task
-            path: /tmp
+            basedir: /tmp
             run: ./run.sh
             tests:
               my-test:

@@ -31,19 +31,20 @@ class Job(BaseModel):
     functional impact on the job.
     """
 
-    path: str | None = None
+    basedir: str | None = None
     """
-    The path to the directory containing the job manifest. This is used to resolve relative paths.
+    The path used as the working directory for the job. This is used to resolve relative paths and defaults to the
+    directory containing the job manifest file.
 
-    This value can be referenced in commands using the `${job.path}` placeholder.
+    This value can be referenced in commands using the `${job.basedir}` placeholder.
 
     e.g.
     ```
         commands:
           - task: my-task
             env:
-              INPUT: ${job.path}/files/input.csv
-              OUTPUT: ${job.path}/files/output.csv
+              INPUT: ${job.basedir}/files/input.csv
+              OUTPUT: ${job.basedir}/files/output.csv
     ```
     """
 
@@ -99,7 +100,7 @@ class Job(BaseModel):
     def from_file(cls, path: str) -> "Job":
         logger.info("Loading job manifest at: {}".format(path))
         job = parse_yaml_file(path)
-        return cls(**{**job, "path": os.path.dirname(path)})
+        return cls(**{**job, "basedir": os.path.dirname(path)})
 
     @classmethod
     def from_yaml(cls, yaml_content: str) -> "Job":
@@ -365,7 +366,7 @@ def resolve_placeholders(job: Job):
                         ("job", "data"),
                         ("job", "tasks"),
                     ):
-                        value = expand_path(value, job.path)
+                        value = expand_path(value, job.basedir)
 
                 set(model, key, value)
             elif isinstance(value, BaseModel | dict | list):
