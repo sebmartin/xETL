@@ -325,12 +325,14 @@ def test_command_invalid_name_raises(command_name):
         ("${previous.env.JOB_VAR}", "job-var-value"),
         ("${first-command.env.VAR1}", "first-command-var1-value"),
         ("${first_command.env.VAR1}", "first-command-var1-value"),
+        ("${First_Command.env.VAR1}", "first-command-var1-value"),
+        ("${FIRST_COMMAND.ENV.VAR1}", "first-command-var1-value"),
         ("${first-command.env.JOB_VAR}", "job-var-value"),
         ("~/relative/path/", "/User/username/relative/path/"),
+        ("~/relative/path${job.basedir}", "/User/username/relative/path/path/to/job"),
         ("${job.basedir}", "/path/to/job"),
         ("${JOB.Env.VAR1}", "job-var1-value"),
         ("${job.commands.0.env.VAR1}", "first-command-var1-value"),
-        ("${self.name}", "second-command"),
         ("${}", "${}"),
     ],
 )
@@ -975,6 +977,28 @@ def test_resolve_variable_previous_output_first_command_raises():
     with pytest.raises(Exception) as exc_info:
         Job.from_yaml(manifest)
     assert "Cannot use ${previous} placeholder on the first command" in str(exc_info.value)
+
+
+def test_resolve_variable_self_reference_command_raises():
+    manifest = dedent(
+        """
+        name: Single composed job manifest
+        data: /data
+        commands:
+          - name: splitter
+            task: split
+            env:
+              BEFORE: ${job.data}
+              FOO: ${splitter.env.BEFORE} -- ${splitter.env.AFTER}
+              AFTER: ${job.data}
+        """
+    )
+
+    with pytest.raises(Exception) as exc_info:
+        Job.from_yaml(manifest)
+    assert "Invalid name `splitter` in `${splitter.env.BEFORE}`" in str(
+        exc_info.value
+    ), "self-referencing command placeholder is not allowed"
 
 
 def test_resolve_variable_chained_placeholders():

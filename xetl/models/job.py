@@ -246,8 +246,6 @@ def resolve_placeholders(job: Job):
                         )
             case ["job", *rest]:
                 return get_key_value(job, rest, match)
-            case ["self", *rest]:
-                return get_key_value(current_model, rest, match)
             case ["previous", *rest]:
                 if "previous" not in references:
                     raise ValueError("Cannot use ${previous} placeholder on the first command")
@@ -381,7 +379,7 @@ def resolve_placeholders(job: Job):
         for item, key_path in queue:
             traverse(item, key_path, references, current_model)
 
-            # track names of previous commands and advance the `previous` placeholder
+            # set command name reference and advance the `previous` placeholder reference
             if key_path == ("job", "commands") and isinstance(item, Command) and item.name:
                 references[item.name.lower()] = item
                 references["previous"] = item
