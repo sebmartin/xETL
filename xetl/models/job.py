@@ -108,14 +108,16 @@ class Job(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def load_host_env(cls, data: Any) -> Any:
-        if isinstance(data, dict) and (host_env := data.get("host-env", data.get("host_env"))):
+        if isinstance(data, dict):
+            if not set(data.keys()) & {"host_env", "host-env"}:
+                host_env = list(data.get("env", {}).keys())
+            else:
+                host_env = data.get("host_env", data.get("host-env"))
             data["host_env"] = [host_env] if isinstance(host_env, str) else host_env
         return data
 
     @model_validator(mode="after")
-    def resolve_placeholders(self) -> "Job":
-        expand_data_path(self)
-        expand_task_paths(self)
+    def resolve_placeholders(self):
         inherit_env(self)
         propagate_env(self)
         resolve_placeholders(self)
@@ -132,15 +134,7 @@ class Job(BaseModel):
 # Validation
 
 
-def expand_data_path(job: Job):
-    job.data = expand_path(job.data, job.path)
-
-
-def expand_task_paths(job: Job):
-    job.tasks = [expand_path(task, job.path) for task in job.tasks]
-
-
-def expand_path(path: str, base_path: str) -> str:
+def expand_path(path: str, base_path: str | None) -> str:
     if path is None or path.startswith(os.path.sep):
         return path
 
@@ -152,24 +146,27 @@ def expand_path(path: str, base_path: str) -> str:
 
 
 def inherit_env(job: Job):
-    """Inherits environment variables from the host environment."""
-    base_env = {}
-    host_env = job.host_env or []
-    if "*" in host_env:
-        if len(host_env) > 1:
+    """
+    Inherit environment variables from the host environment. Host environment variables that are named in `host_env`
+    override values specified in `job.env`.
+    """
+    os_env = {}
+    allowlist = job.host_env or []
+    if "*" in allowlist:
+        if len(allowlist) > 1:
             logger.warning(
-                "The `*` value in `host-env` was specified alongside other values. "
+                "The `*` value in `job.host_env` was specified alongside other values. "
                 "All host environment variables will be inherited."
             )
-        base_env = dict(os.environ)
+        os_env = dict(os.environ)
     else:
-        base_env = {key: os.environ.get(key) for key in host_env if key in os.environ}
-        if missing_keys := set(host_env) - set(base_env.keys()):
+        os_env = {key: os.environ[key] for key in allowlist if key in os.environ}
+        if missing_keys := set(allowlist) - set(os_env.keys()) - set(job.env.keys()):
             logger.warning(
-                "The following host environment variables were not found: {}".format(", ".join(missing_keys))
+                "The following host environment variables did not receive a value: {}".format(", ".join(missing_keys))
             )
-    base_env = {**base_env, **job.env}
-    job.env = base_env
+    os_env = {**job.env, **os_env}
+    job.env = os_env
 
 
 def propagate_env(job: Job):
@@ -224,7 +221,7 @@ def resolve_placeholders(job: Job):
         )
 
     def variable_value(
-        names: Iterable[str], current_command: Command, named_commands: dict[str, Command], match: str
+        names: Iterable[str], current_model: Job | Command, references: dict[str, Job | Command], match: str
     ) -> EnvVariableType:
         # Make case insensitive
         names = [n.lower() for n in names]
@@ -245,25 +242,25 @@ def resolve_placeholders(job: Job):
             case ["job", *rest]:
                 return get_key_value(job, rest, match)
             case ["self", *rest]:
-                return get_key_value(current_command, rest, match)
+                return get_key_value(current_model, rest, match)
             case ["previous", *rest]:
-                if "previous" not in named_commands:
+                if "previous" not in references:
                     raise ValueError("Cannot use ${previous} placeholder on the first command")
             case _:
                 if len(names) == 1:
                     # Check current command's env
                     try:
-                        return get_key_value(current_command.env, names, match)
+                        return get_key_value(current_model.env, names, match)
                     except EnvKeyLookupErrors:
                         pass
 
         # Resolve named commands or `previous`
-        if placeholder := fuzzy_lookup(named_commands, names[0]):
+        if placeholder := fuzzy_lookup(references, names[0]):
             return get_key_value(placeholder, names[1:], match)
 
         # Could not resolve
-        env_keys = ", ".join(sorted(current_command.env.keys()))
-        command_keys = ", ".join(sorted({name for name, p in named_commands.items()} - {"previous"}))
+        env_keys = ", ".join(sorted(current_model.env.keys()))
+        command_keys = ", ".join(sorted({name for name, p in references.items()} - {"previous"}))
         raise ValueError(
             f"Invalid name `{names[0]}` in `{match}`. The first name must be one of:\n"
             f" - variable name in the current command's env: {env_keys or 'No env variables defined'}\n"
@@ -275,7 +272,7 @@ def resolve_placeholders(job: Job):
             " - `tmp.file` to create a temporary file"
         )
 
-    def resolve(string: str, current_command: Command, named_commands: dict[str, Command]) -> EnvVariableType:
+    def resolve(string: str, current_model: Job | Command, references: dict[str, Job | Command]) -> EnvVariableType:
         """
         Parse the placeholder string and resolve it to a value.
         """
@@ -302,7 +299,7 @@ def resolve_placeholders(job: Job):
             matched_names = match[1] or match[2]
             names = matched_names.split(".")
 
-            resolved = variable_value(names, current_command, named_commands, match[0])
+            resolved = variable_value(names, current_model, references, match[0])
             if match.span() == (0, len(string)):
                 # We matched the entire string, retain the original type (e.g. int, float, etc)
                 return resolved
@@ -313,32 +310,78 @@ def resolve_placeholders(job: Job):
             pos = match.start() + len(resolved)
         return string
 
-    def traverse_object(model: BaseModel | dict, current_command: Command, named_commands: dict[str, Command]):
+    def traverse(
+        model: BaseModel | dict | list,
+        key_path: Iterable[str],
+        references: dict[str, Job | Command],
+        current_model: Job | Command,
+    ):
         """
-        Look for placeholders (e.g. $previous.OUTPUT) in property (models) or dict values and resolve them.
+        Look for placeholders (e.g. $previous.env.OUTPUT) in property (models) or dict values and resolve them.
         """
-        items = model.items() if isinstance(model, dict) else model.model_dump().items()
-        for key, value in items:
-            if isinstance(value, BaseModel | dict):
-                traverse_object(value, current_command, named_commands)
-            elif isinstance(value, str):
+
+        def get(obj: BaseModel | dict | list, key: str | int) -> Any:
+            if isinstance(obj, dict):
+                return obj[key]
+            if isinstance(obj, list):
+                return obj[int(key)]
+            if isinstance(obj, BaseModel):
+                return getattr(obj, str(key))
+
+        def set(obj: BaseModel | dict | list, key: str | int, value: Any) -> None:
+            if isinstance(obj, dict):
+                obj[key] = value
+            if isinstance(obj, list):
+                obj[int(key)] = value
+            elif isinstance(obj, BaseModel):
+                setattr(obj, str(key), value)
+
+        def keys(obj: BaseModel | dict | list) -> Iterable[str | int]:
+            if isinstance(obj, dict):
+                return obj.keys()
+            if isinstance(obj, BaseModel):
+                return obj.model_fields.keys()
+            if isinstance(obj, list):
+                return range(len(obj))
+
+        current_model = model if isinstance(model, Job | Command) else current_model
+        references = dict(references)
+        queue: list[tuple[BaseModel | dict | list, Iterable[str]]] = []
+
+        for key in keys(model):
+            value = get(model, key)
+            item_key_path = tuple(key_path) + (key,) if isinstance(key, str) else tuple(key_path)
+            if not value:
+                continue
+            if isinstance(value, str):
                 if "$" in value:
-                    value = resolve(value, current_command, named_commands)
-                if isinstance(value, str) and value.startswith("~/"):
-                    # assume it's a path and expand it
-                    value = os.path.expanduser(value)
+                    value = resolve(value, current_model, references)
+                if isinstance(value, str):
+                    if value.startswith("~/"):
+                        # assume it's a path and expand it
+                        value = os.path.expanduser(value)
+
+                    if item_key_path in (
+                        ("job", "data"),
+                        ("job", "tasks"),
+                    ):
+                        value = expand_path(value, job.path)
+
+                set(model, key, value)
+            elif isinstance(value, BaseModel | dict | list):
+                queue.append((value, item_key_path))
             else:
                 continue
 
-            if isinstance(model, dict):
-                model[key] = value
-            elif isinstance(model, BaseModel):
-                setattr(model, key, value)
+        for item, key_path in queue:
+            traverse(item, key_path, references, current_model)
+
+            # track names of previous commands and advance the `previous` placeholder
+            if key_path == ("job", "commands") and isinstance(item, Command) and item.name:
+                references[item.name.lower()] = item
+                references["previous"] = item
+            elif "previous" in references:
+                del references["previous"]
 
     # Resolve all job placeholders
-    named_commands: dict[str, Command] = OrderedDict()
-    for command in job.commands:
-        traverse_object(command, command, named_commands)
-        if command.name:
-            named_commands[command.name] = command
-        named_commands["previous"] = command
+    traverse(job, key_path=("job",), references=OrderedDict(), current_model=job)  # TODO: this is wrong
