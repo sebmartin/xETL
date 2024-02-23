@@ -220,7 +220,6 @@ def resolve_placeholders(job: Job):
         if isinstance(value, list):
             return get_key_value(value[int(keys[1])], keys[2:], match)
 
-        # TODO: test this
         raise ValueError(
             f"Invalid placeholder in {match}. Could not drill in beyond `{keys[0]}` as it does not refer to an object or a list."
         )
@@ -387,4 +386,4 @@ def resolve_placeholders(job: Job):
                 del references["previous"]
 
     # Resolve all job placeholders
-    traverse(job, key_path=("job",), references=OrderedDict(), current_model=job)  # TODO: this is wrong
+    traverse(job, key_path=("job",), references=OrderedDict(), current_model=job)

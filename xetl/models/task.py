@@ -339,7 +339,7 @@ class Task(BaseModel):
                         logger.info(output.strip())
             finally:
                 if process.poll() is None:
-                    process.kill()  # TODO test this
+                    process.kill()
                 if process.stdin:
                     process.stdin.close()
                 if process.stdout:
@@ -381,6 +381,6 @@ def discover_tasks(tasks_repo_path: str | list[str]) -> dict[str, Task]:
         except (ManifestLoadError, InvalidManifestError) as e:
             logger.warning(f"Skipping task at `{path}` due to error: {str(e)}")
         except Exception as e:
-            logger.error(f"Skipping task at `{path}` due to unexpected error: {e}")  # TODO: test this
+            logger.error(f"Skipping task at `{path}` due to unexpected error: {e}")
 
     return tasks
