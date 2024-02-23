@@ -74,9 +74,10 @@ def test_execute_job_stops_if_command_fails(
 
 
 @pytest.mark.real_verify_data_dir
-def test_execute_job_fails_if_data_dir_does_not_exist(job_manifest_simple_path):
+@mock.patch("xetl.models.task.Task.execute", mock.Mock(side_effect=Exception("Task should not have been executed")))
+def test_execute_job_fails_if_data_dir_does_not_exist(job_manifest_unknown_data_path):
     with pytest.raises(JobDataDirectoryNotFound):
-        engine.execute_job(job_manifest_simple_path)
+        engine.execute_job(job_manifest_unknown_data_path)
 
 
 @pytest.mark.real_verify_data_dir
