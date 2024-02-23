@@ -53,6 +53,23 @@ def job_manifest_simple_path(job_manifest_simple, tmpdir):
 
 
 @pytest.fixture
+def job_manifest_unknown_data(tasks_fixtures_path):
+    return dedent(
+        f"""
+        name: Simple job manifest
+        data: /not/a/path/that/should/exist/on/any/system
+        tasks: {tasks_fixtures_path}
+        commands: []
+        """
+    )
+
+
+@pytest.fixture
+def job_manifest_unknown_data_path(job_manifest_unknown_data, tmpdir):
+    return job_file(job_manifest_unknown_data, tmpdir)
+
+
+@pytest.fixture
 def job_manifest_multiple_commands(tasks_fixtures_path):
     return dedent(
         f"""
