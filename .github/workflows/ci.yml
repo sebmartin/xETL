@@ -32,7 +32,7 @@ jobs:
         poetry run coverage xml -o coverage.xml
 
     - name: Upload coverage report to Codecov
-      if: ${{ github.ref == 'refs/heads/main' && matrix.python-version == '3.12' }}
+      if: ${{ matrix.python-version == '3.12' }}
       uses: codecov/codecov-action@v2
       with:
         file: ./coverage.xml

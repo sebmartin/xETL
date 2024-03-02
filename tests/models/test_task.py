@@ -9,6 +9,7 @@ import yaml
 from mock import call
 from pydantic import ValidationError
 from xetl.models import EnvVariableType
+from xetl.models.job import Job
 
 from xetl.models.task import TaskInputDetails, Task, discover_tasks
 from xetl.models.task_test_case import TaskTestCase
@@ -859,3 +860,14 @@ class TestEndToEnd:
         res = task.execute(env={"NAME": "Steve"}, dryrun=False)
         assert caplog.messages == ["Steve"], "Should have printed the name from the env variable"
         assert res == 0
+
+
+@mock.patch("xetl.models.task.Task.validate_inputs", side_effect=ValueError("Invalid inputs"))
+def test_execute_validates_before_executing(
+    validate_inputs,
+    mock_subprocess_run,
+    job_manifest_multiple_commands_path,
+):
+    with pytest.raises(ValueError):
+        Job.from_file(job_manifest_multiple_commands_path).execute()
+    mock_subprocess_run.assert_not_called()

@@ -6,13 +6,21 @@ from collections import OrderedDict
 from typing import Any, Iterable
 
 from pydantic import BaseModel, field_validator, model_validator
+import yaml
+from xetl.logging import LogContext, log_context
 
 from xetl.models import EnvKeyLookupErrors, EnvVariableType
 from xetl.models.command import Command
-from xetl.models.utils.dicts import fuzzy_lookup
+from xetl.models.task import discover_tasks
+from xetl.models.utils.dicts import conform_key, fuzzy_lookup
 from xetl.models.utils.io import parse_yaml, parse_yaml_file
 
 logger = logging.getLogger(__name__)
+
+
+class NoAliasDumper(yaml.SafeDumper):
+    def ignore_aliases(self, data):
+        return True
 
 
 class JobDataDirectoryNotFound(Exception):
@@ -134,6 +142,76 @@ class Job(BaseModel):
         if isinstance(value, str):
             value = [value]
         return value
+
+    def execute(self, commands: list[str] | str | None = None, dryrun=False):
+        if commands is not None:
+            if isinstance(commands, str):
+                commands = [cmd.strip() for cmd in commands.split(",")]
+            if not isinstance(commands, Iterable):
+                raise ValueError(
+                    "The `commands` argument must be a list of strings or a comma-separated string of command names"
+                )
+            if not commands:
+                logger.warning("No commands to execute")
+                return
+            commands = [conform_key(name.strip()) for name in commands]
+
+        with log_context(LogContext.JOB, "Executing job: {}".format(self.name)):
+            if dryrun:
+                logger.info("Manifest parsed as:")
+                for line in (
+                    yaml.dump(
+                        self.model_dump(exclude_unset=True),
+                        Dumper=NoAliasDumper,
+                        sort_keys=False,
+                    )
+                    .strip()
+                    .split("\n")
+                ):
+                    logger.info("  " + line)
+            else:
+                logger.info("Parsed manifest for job: {}".format(self.name))
+
+            if tasks_repo_paths := self.tasks:
+                logger.info(f"Discovering tasks at paths: {tasks_repo_paths}")
+                available_tasks = discover_tasks(tasks_repo_paths)
+                if not available_tasks:
+                    logger.error("Could not find any tasks at paths {}".format(tasks_repo_paths))
+                    return
+            else:
+                logger.warning("The property `tasks` is not defined in the job manifest, no tasks will be available")
+                available_tasks = {}
+            logger.info("Available tasks detected:")
+            for cmd in available_tasks.values():
+                logger.info(f" - {cmd.name}")
+
+            filtered_commands = []
+            for command in self.commands:
+                if commands is None or command.name and conform_key(command.name) in commands:
+                    filtered_commands.append(command)
+                else:
+                    logger.warning(f"Skipping command `{command.name}`")
+
+            if not dryrun:
+                self._verify_data_dir(self.data)
+
+            # Validate all inputs before executing any command to fail fast
+            for command in filtered_commands:
+                command.get_task(available_tasks).validate_inputs(command.env, critical_only=True)
+
+            # Execute all commands in order
+            for i, command in enumerate(filtered_commands):
+                if command.skip:
+                    logger.warning(f"Skipping command `{command.name or f'#{i + 1}'}` from job '{self.name}'")
+                    continue
+                command.execute(available_tasks, dryrun, i, len(self.commands))
+
+            logger.info("Done! \\o/")
+
+    def _verify_data_dir(self, data_dir: str):
+        if not os.path.exists(data_dir):
+            logger.fatal(f"The job's `data` directory does not exist: {data_dir}")
+            raise JobDataDirectoryNotFound
 
 
 # Validation

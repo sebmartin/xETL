@@ -1,9 +1,15 @@
+import logging
 from typing import Any
 
 from pydantic import BaseModel, field_validator
+import yaml
+from xetl.logging import LogContext, log_context
 
 from xetl.models import EnvVariableType
+from xetl.models.task import Task, TaskFailure, UnknownTaskError
 from xetl.models.utils.dicts import conform_env_key
+
+logger = logging.getLogger(__name__)
 
 
 class Command(BaseModel):
@@ -23,7 +29,7 @@ class Command(BaseModel):
 
     task: str
     """
-    The name of the task to execute. The task needs to be discovered by the engine in order
+    The name of the task to execute. The task needs to be discovered by the job in order
     to be referenced by name and be found. The name matching is case insensitive.
 
     See the `xetl.models.task.discover_tasks` function for more information on the task
@@ -60,3 +66,38 @@ class Command(BaseModel):
                 f"Command name '{value}' contains invalid characters. Only letters, numbers, dashes, and underscores are allowed."
             )
         return value
+
+    def execute(self, tasks: dict[str, Task], dryrun: bool, index: int, total: int):
+        context_header = (
+            f"Executing command {f'{index + 1}'} of {total}"
+            if self.name is None
+            else f"Executing command: {self.name} ({f'{index + 1}'} of {total})"
+        )
+        with log_context(LogContext.TASK, context_header):
+            for line in yaml.dump(self.model_dump(), indent=2, sort_keys=False).strip().split("\n"):
+                logger.info("  " + line)
+            with log_context(LogContext.COMMAND, f"Executing task: {self.task}") as log_footer:
+                returncode = self.get_task(tasks).execute(self.env, dryrun)
+                log_footer(f"Return code: {returncode}")
+            if index < total - 1:
+                logger.info("")  # leave a blank line between commands
+
+        if returncode != 0:
+            raise TaskFailure(returncode=returncode)
+
+    def get_task(self, tasks: dict[str, Task]) -> Task:
+        """
+        Get the task associated with this command from the provided tasks dictionary.
+
+        Args:
+            tasks: A dictionary of tasks where the keys are the task names and the values are the task objects.
+
+        Returns:
+            The task object associated with this command.
+        """
+        task_name = self.task
+
+        if task := tasks.get(task_name):
+            return task
+        else:
+            raise UnknownTaskError(f"Unknown task `{task_name}`, should be one of: {sorted(tasks.keys())}")
