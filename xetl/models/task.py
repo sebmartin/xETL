@@ -110,11 +110,9 @@ class Task(BaseModel):
 
     env: dict[str, TaskInputDetails] = {}
     """
-    A dictionary of environment variable inputs for the task's run task. This instructs the runtime
-    engine which environment variables to pass to the task when executing it. When the task is
-    executed, the runtime engine will pass the values of these environment variables (provided by the job
-    command) to the task as environment variables. The task can then use these values to control its
-    behaviour.
+    A dictionary of environment variable that the task accepts as inputs. This instructs the job execution
+    about which environment variables should be passed to the task when executed from a command. The task
+    can use these values to provide dynamic behaviour.
 
     In its simplest form, the keys are the names of the ENV variables and the values are a text description
     for each variable. The descriptions are purely metadata and have no functional impact on the task.
@@ -129,9 +127,9 @@ class Task(BaseModel):
     It's also possible to specify additional details for each input. The following details can be specified:
         - `description`: A text description of the input. This is purely metadata and has no functional
             impact on the task.
-        - `required`: A boolean value indicating whether the input is required. If `True`, the runtime engine
-            will raise an error if the input is not provided by the job command. If `False`, the runtime engine
-            will not raise an error if the input is not provided by the job command and the ENV variable will not
+        - `required`: A boolean value indicating whether the input is required. If `True`, an error will be raised
+            before execution if the input is not provided by the job command. If `False`, an error
+            will not be raised if the input is not provided by the job command and the ENV variable will not
             be set when executing the task.
         - `optional`: A boolean value indicating whether the input is optional. This is just a convenience
             alias for `required` and is mutually exclusive with `required`.

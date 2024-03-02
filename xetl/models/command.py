@@ -29,7 +29,7 @@ class Command(BaseModel):
 
     task: str
     """
-    The name of the task to execute. The task needs to be discovered by the engine in order
+    The name of the task to execute. The task needs to be discovered by the job in order
     to be referenced by name and be found. The name matching is case insensitive.
 
     See the `xetl.models.task.discover_tasks` function for more information on the task
