@@ -2,8 +2,8 @@ import argparse
 import logging
 from os.path import abspath, exists
 
-from xetl.engine import execute_job
 from xetl.logging import LogStyle, configure_logging
+from xetl.models.job import Job
 from xetl.models.task import TaskFailure
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,8 @@ if __name__ == "__main__":
         exit(code=1)
 
     try:
-        execute_job(manifest_path, commands=args.commands, dryrun=args.dryrun)
+        job = Job.from_file(manifest_path)
+        job.execute(commands=args.commands, dryrun=args.dryrun)
     except TaskFailure as e:
         logger.fatal("Task failed, terminating job.")
         exit(code=e.returncode)
