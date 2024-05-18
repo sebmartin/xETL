@@ -1,0 +1,13 @@
+name: fetch-grayscale
+description: Download an image and convert it to grayscale
+data: ./data
+tasks: ./tasks
+commands:
+  - task: download
+    env:
+      IMAGE_URL: https://www.python.org/static/img/python-logo@2x.png
+      OUTPUT: ${job.data}/source/download.png
+  - task: grayscale
+    env:
+      INPUT: ${previous.env.OUTPUT}
+      OUTPUT: ${job.data}/final/grayscale.png

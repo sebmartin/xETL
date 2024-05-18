@@ -35,6 +35,7 @@ def argument_parser() -> argparse.ArgumentParser:
         help="Sets the amount to decoration to add around logs from 1 (minimal) to 3 (gaudy).",
     )
     parser.add_argument("--dryrun", action="store_true", help="Print the task details instead of executing them")
+
     return parser
 
 

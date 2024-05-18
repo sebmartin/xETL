@@ -1,0 +1,9 @@
+name: grayscale
+env:
+  INPUT: File path to input image
+  OUTPUT: File path to outptu image
+run:
+  interpreter: /bin/bash -c
+  script: |
+    mkdir -p "$(dirname "$OUTPUT")"
+    convert "$INPUT" -colorspace Gray "$OUTPUT"

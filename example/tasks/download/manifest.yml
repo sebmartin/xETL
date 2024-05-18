@@ -1,0 +1,9 @@
+name: download
+env:
+  IMAGE_URL: URL to the image to download
+  OUTPUT: File path to save the file
+run:
+  interpreter: /bin/bash -c
+  script: |
+    mkdir -p "$(dirname "$OUTPUT")"
+    curl -o "$OUTPUT" "$IMAGE_URL"
